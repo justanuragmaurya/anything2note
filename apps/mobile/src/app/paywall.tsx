@@ -1,13 +1,13 @@
 import { useState } from "react";
 import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
-import { router } from "expo-router";
+import { router, useIsFocused } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { TopBar } from "@/components/navigation/TopBar";
 import { NightDots } from "@/components/note-type/NoteTypeShape";
-import { Button, CornerFrame, Display, Eyebrow, Icon, Rise, SerifAccent, SlidingTabs, Small } from "@/components/ui";
+import { Button, Display, Eyebrow, Icon, Rise, SerifAccent, SlidingTabs, Small } from "@/components/ui";
 import { haptic } from "@/lib/haptics";
 import { useSession } from "@/lib/session";
 import { fontFamily, palette } from "@/theme";
@@ -29,6 +29,8 @@ const PRO = [
 
 export default function Paywall() {
   const insets = useSafeAreaInsets();
+  // Screens below in the stack stay mounted; only claim the light status bar while on top.
+  const focused = useIsFocused();
   const { width } = useWindowDimensions();
   const { upgrade } = useSession();
   const [period, setPeriod] = useState<Period>("yearly");
@@ -48,7 +50,7 @@ export default function Paywall() {
 
   return (
     <View style={{ flex: 1, backgroundColor: palette.night }}>
-      <StatusBar style="light" />
+      <StatusBar style={focused ? "light" : "dark"} />
       <NightDots width={width} height={420} />
       <LinearGradient colors={["rgba(229,55,43,0.28)", "transparent"]} style={[StyleSheet.absoluteFill, { height: 380 }]} />
       <View style={{ paddingTop: Math.max(insets.top - 30, 6) }}>
@@ -62,9 +64,10 @@ export default function Paywall() {
           </Display>
         </Rise>
 
-        <Rise delay={60} style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 20 }}>
+        <Rise delay={60} style={{ flexDirection: "row", justifyContent: "space-between", gap: 8, marginTop: 20 }}>
           <SlidingTabs
             tone="night"
+            size="sm"
             value={period}
             onChange={setPeriod}
             items={[
@@ -79,48 +82,45 @@ export default function Paywall() {
             onChange={setRegion}
             items={[
               { value: "in", label: "India" },
-              { value: "intl", label: "Everywhere else" },
+              { value: "intl", label: "Global" },
             ]}
           />
         </Rise>
 
-        {/* Web Pro card, inside a night corner frame */}
         <Rise delay={120} style={{ marginTop: 20 }}>
-          <CornerFrame tone="night" style={{ padding: 8, borderRadius: 2 }}>
-            <View style={styles.card}>
-              <View style={styles.cardHead}>
-                <LinearGradient colors={["#ffd2b8", palette.red400, palette.red600]} start={{ x: 0.3, y: 0.3 }} end={{ x: 1, y: 1 }} style={styles.orb} />
-                <View style={styles.popular}>
-                  <Small style={{ fontSize: 11, color: palette.inkSoft }}>✦ Most popular</Small>
-                </View>
+          <View style={styles.card}>
+            <View style={styles.cardHead}>
+              <LinearGradient colors={["#ffd2b8", palette.red400, palette.red600]} start={{ x: 0.3, y: 0.3 }} end={{ x: 1, y: 1 }} style={styles.orb} />
+              <View style={styles.popular}>
+                <Small style={{ fontSize: 11, color: palette.inkSoft }}>✦ Most popular</Small>
               </View>
-              <Text style={styles.planName}>Pro</Text>
-              <Small>For semesters, sprints and research projects.</Small>
-              <View style={styles.priceRow}>
-                <Text style={styles.price}>{p.symbol}</Text>
-                <Animated.Text key={`${region}-${period}`} entering={FadeInDown.duration(300)} style={styles.price}>
-                  {value.toLocaleString("en-IN")}
-                </Animated.Text>
-                <Text style={[styles.price, { color: palette.lineStrong }]}>.00</Text>
-                <Small style={{ marginLeft: 6, marginBottom: 8 }}>/{period === "monthly" ? "month" : "year"}</Small>
-              </View>
-              <Small style={{ fontSize: 12 }}>
-                {period === "yearly" ? `That's ${p.symbol}${Math.round(p.yearly / 12)}/month, billed yearly.` : "Billed monthly. Cancel anytime."}
-              </Small>
-              <View style={styles.features}>
-                {PRO.map((f) => (
-                  <View key={f} style={styles.feature}>
-                    <Icon name="check" size={14} color={palette.red500} weight="bold" />
-                    <Small style={{ color: palette.ink, fontSize: 14, flex: 1 }}>{f}</Small>
-                  </View>
-                ))}
-              </View>
-              <Button block size="lg" icon="arrowUpRight" loading={busy} onPress={buy} style={{ marginTop: 24 }}>
-                {`Go Pro ${period === "yearly" ? "for the year" : "monthly"}`}
-              </Button>
-              <Small style={{ textAlign: "center", fontSize: 11, marginTop: 10 }}>Billed through the App Store / Google Play. Mock purchase in this preview.</Small>
             </View>
-          </CornerFrame>
+            <Text style={styles.planName}>Pro</Text>
+            <Small>For semesters, sprints and research projects.</Small>
+            <View style={styles.priceRow}>
+              <Text style={styles.price}>{p.symbol}</Text>
+              <Animated.Text key={`${region}-${period}`} entering={FadeInDown.duration(300)} style={styles.price}>
+                {value.toLocaleString("en-IN")}
+              </Animated.Text>
+              <Text style={[styles.price, { color: palette.lineStrong }]}>.00</Text>
+              <Small style={{ marginLeft: 6, marginBottom: 8 }}>/{period === "monthly" ? "month" : "year"}</Small>
+            </View>
+            <Small style={{ fontSize: 12 }}>
+              {period === "yearly" ? `That's ${p.symbol}${Math.round(p.yearly / 12)}/month, billed yearly.` : "Billed monthly. Cancel anytime."}
+            </Small>
+            <View style={styles.features}>
+              {PRO.map((f) => (
+                <View key={f} style={styles.feature}>
+                  <Icon name="check" size={14} color={palette.red500} weight="bold" />
+                  <Small style={{ color: palette.ink, fontSize: 14, flex: 1 }}>{f}</Small>
+                </View>
+              ))}
+            </View>
+            <Button block size="lg" icon="arrowUpRight" loading={busy} onPress={buy} style={{ marginTop: 24 }}>
+              {`Go Pro ${period === "yearly" ? "for the year" : "monthly"}`}
+            </Button>
+            <Small style={{ textAlign: "center", fontSize: 11, marginTop: 10 }}>Billed through the App Store / Google Play. Mock purchase in this preview.</Small>
+          </View>
         </Rise>
 
         <Button variant="night" block style={{ marginTop: 18 }} onPress={() => router.back()}>

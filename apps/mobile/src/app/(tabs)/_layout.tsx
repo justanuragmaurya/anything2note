@@ -13,8 +13,9 @@ export default function TabsLayout() {
       }}
     >
       <Tabs.Screen name="library" />
-      <Tabs.Screen name="add" />
       <Tabs.Screen name="review" />
+      {/* Hero action sits in the middle of the bar. */}
+      <Tabs.Screen name="add" />
       <Tabs.Screen name="actions" />
       <Tabs.Screen name="profile" />
     </Tabs>

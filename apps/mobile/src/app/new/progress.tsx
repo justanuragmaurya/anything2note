@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeInDown, ZoomIn } from "react-native-reanimated";
 import { SOURCE_ICON } from "@/components/library/ItemCard";
 import { TopBar } from "@/components/navigation/TopBar";
-import { Body, Button, CornerFrame, Display, Eyebrow, Icon, Label, ProgressBar, Rise, Screen, SerifAccent, Skeleton, Small } from "@/components/ui";
+import { Body, Button, Display, Eyebrow, Icon, Label, ProgressBar, Rise, Screen, SerifAccent, Skeleton, Small } from "@/components/ui";
 import { demoItemFor, parseSource } from "@/lib/flow";
 import { haptic } from "@/lib/haptics";
 import { OUTPUT_LABELS, noteType, type NoteTypeKey, type OutputKey } from "@/lib/note-types";
@@ -80,7 +80,7 @@ export default function Progress() {
         </Rise>
 
         <Rise delay={80}>
-          <CornerFrame tone="paper" style={styles.frame}>
+          <View style={styles.frame}>
             <View style={styles.sourceRow}>
               <View style={[styles.sourceIcon, { backgroundColor: nt.color }]}>
                 <Icon name={SOURCE_ICON[source]} size={16} color={palette.ink} />
@@ -92,7 +92,7 @@ export default function Progress() {
               <Eyebrow>{Math.round(overall * 100)}%</Eyebrow>
             </View>
             <ProgressBar value={overall} style={{ marginTop: 14 }} />
-          </CornerFrame>
+          </View>
         </Rise>
 
         <View style={{ gap: 14, marginTop: 24 }}>
@@ -136,7 +136,7 @@ export default function Progress() {
       </View>
 
       <View style={{ paddingHorizontal: 20, paddingBottom: Math.max(insets.bottom, 16) }}>
-        <Button block size="lg" disabled={!done} onPress={open} icon="arrowUpRight">
+        <Button block size="lg" disabled={!done} onPress={open} icon={done ? "arrowUpRight" : undefined}>
           {done ? "Open notes" : "Working…"}
         </Button>
       </View>
@@ -145,7 +145,7 @@ export default function Progress() {
 }
 
 const styles = StyleSheet.create({
-  frame: { marginTop: 24, padding: 16, backgroundColor: palette.card },
+  frame: { marginTop: 24, padding: 16, borderRadius: 22, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.card },
   sourceRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   sourceIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   stage: { flexDirection: "row", gap: 14, alignItems: "flex-start" },

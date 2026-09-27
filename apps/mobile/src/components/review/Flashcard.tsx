@@ -18,6 +18,8 @@ type Props = {
   onRated: (r: Rating) => void;
   onFlip?: (flipped: boolean) => void;
   width: number;
+  /** Defaults to a tall 1 : 1.12 card. */
+  height?: number;
 };
 
 const SWIPE = 110;
@@ -26,7 +28,7 @@ const SWIPE = 110;
  * 3D flip card (rotateY with backface hidden). Tap flips; once flipped, swipe
  * right = Good, left = Again, up = Easy. Buttons call `fling` via the ref.
  */
-export const Flashcard = forwardRef<FlashcardHandle, Props>(function Flashcard({ card, index, total, source, onRated, onFlip, width }, ref) {
+export const Flashcard = forwardRef<FlashcardHandle, Props>(function Flashcard({ card, index, total, source, onRated, onFlip, width, height }, ref) {
   const rot = useSharedValue(0); // 0 front, 180 back
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
@@ -90,7 +92,7 @@ export const Flashcard = forwardRef<FlashcardHandle, Props>(function Flashcard({
 
   return (
     <GestureDetector gesture={gesture}>
-      <Animated.View style={[{ width, height: width * 1.12 }, wrap]}>
+      <Animated.View style={[{ width, height: height ?? width * 1.12 }, wrap]}>
         <Animated.View style={[styles.face, styles.front, front]}>
           <Eyebrow color={alphaInk}>
             Card {index + 1} / {total}

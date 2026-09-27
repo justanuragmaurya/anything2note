@@ -16,35 +16,31 @@ export default function Profile() {
 
   return (
     <Screen>
+      <Rise className="px-5 pt-4 pb-2">
+        <Eyebrow>{email ?? "Signed out"}</Eyebrow>
+        <Display size={40} style={{ marginTop: 6 }}>
+          Hi, <SerifAccent size={46}>{name}</SerifAccent>
+        </Display>
+      </Rise>
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        <Rise className="px-5 pt-4">
-          <Eyebrow>{email ?? "Signed out"}</Eyebrow>
-          <Display size={40} style={{ marginTop: 6 }}>
-            Hi, <SerifAccent size={46}>{name}</SerifAccent>
-          </Display>
-        </Rise>
-
-        <Rise delay={60} style={{ paddingHorizontal: 16, marginTop: 18 }}>
+        <Rise delay={60} style={{ paddingHorizontal: 16, marginTop: 10 }}>
           <NestedCard>
             <View style={styles.planHead}>
               <View style={[styles.orb, pro ? styles.orbPro : styles.orbFree]}>
                 <View style={styles.orbDot} />
               </View>
-              <View style={styles.badge}>
-                <Small style={{ fontSize: 11, color: palette.inkSoft }}>{pro ? "✦ Pro" : "Free plan"}</Small>
+              <View style={{ flex: 1 }}>
+                <H level={3}>{pro ? "Pro plan" : "Free plan"}</H>
+                <Small style={{ marginTop: 2 }}>{pro ? "Renews 27 Sep 2027 · yearly" : "Resets on 1 Oct"}</Small>
               </View>
             </View>
-            <H level={2} style={{ marginTop: 18 }}>
-              {pro ? "Pro" : "Free"}
-            </H>
-            <Small style={{ marginTop: 2 }}>{pro ? "Renews 27 Sep 2027 · yearly" : "Resets on 1 Oct"}</Small>
-            <View style={{ gap: 14, marginTop: 20, paddingTop: 18, borderTopWidth: 1, borderTopColor: palette.line }}>
+            <View style={{ gap: 14, marginTop: 18, paddingTop: 16, borderTopWidth: 1, borderTopColor: palette.line }}>
               <UsageBar label="Media minutes" used={pro ? 312 : 94} limit={pro ? 2000 : 120} unit="min" />
               <UsageBar label="Document pages" used={pro ? 140 : 22} limit={pro ? 2000 : 50} unit="pp" />
               <UsageBar label="AI chat" used={pro ? 40 : 18} limit={pro ? 1000 : 30} unit="msgs" />
             </View>
             {pro ? null : (
-              <Button block size="lg" icon="arrowUpRight" style={{ marginTop: 22 }} onPress={() => router.push("/paywall")}>
+              <Button block size="lg" icon="arrowUpRight" style={{ marginTop: 20 }} onPress={() => router.push("/paywall")}>
                 Upgrade to Pro
               </Button>
             )}
@@ -119,10 +115,9 @@ export default function Profile() {
 }
 
 const styles = StyleSheet.create({
-  planHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  planHead: { flexDirection: "row", alignItems: "center", gap: 12 },
   orb: { width: 32, height: 32, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   orbFree: { backgroundColor: palette.ink },
   orbPro: { backgroundColor: palette.red500, shadowColor: palette.red400, shadowOpacity: 0.5, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } },
   orbDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: palette.cream, shadowColor: "#fff", shadowOpacity: 0.8, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
-  badge: { borderWidth: 1, borderColor: palette.line, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 3 },
 });

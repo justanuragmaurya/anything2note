@@ -7,6 +7,7 @@ import { fmtTime, wave } from "@/lib/format";
 import { palette, spring } from "@/theme";
 
 const BARS = 56;
+const HEIGHT = 136;
 
 type Props = {
   duration: number;
@@ -27,7 +28,7 @@ export function Player({ duration, time, playing, onToggle, onSeek, seed = 0, la
 
   return (
     <View style={styles.panel} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
-      {w ? <NightDots width={w} height={188} /> : null}
+      {w ? <NightDots width={w} height={HEIGHT} /> : null}
       <View style={styles.top}>
         <Eyebrow color={palette.nightMuted} numberOfLines={1} style={{ flex: 1 }}>
           {label}
@@ -62,7 +63,7 @@ export function Player({ duration, time, playing, onToggle, onSeek, seed = 0, la
         </PressableScale>
         <PressableScale onPress={onToggle} haptics="press" scaleTo={0.9} accessibilityLabel={playing ? "Pause" : "Play"}>
           <Animated.View style={[styles.play, knob]}>
-            <Icon name={playing ? "pause" : "play"} size={20} color={palette.ink} weight="bold" />
+            <Icon name={playing ? "pause" : "play"} size={17} color={palette.ink} weight="bold" />
           </Animated.View>
         </PressableScale>
         <Mono style={{ color: palette.nightMuted, fontSize: 11 }}>{fmtTime(time)}</Mono>
@@ -77,25 +78,25 @@ export function Player({ duration, time, playing, onToggle, onSeek, seed = 0, la
 
 const styles = StyleSheet.create({
   panel: {
-    height: 188,
+    height: HEIGHT,
     marginHorizontal: 16,
     borderRadius: 22,
     backgroundColor: palette.night2,
     borderWidth: 1,
     borderColor: palette.nightLine,
     overflow: "hidden",
-    padding: 16,
-    paddingHorizontal: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
     justifyContent: "space-between",
   },
   top: { flexDirection: "row", alignItems: "center", gap: 10 },
   live: { width: 7, height: 7, borderRadius: 4, backgroundColor: palette.night3 },
-  wave: { height: 64, flexDirection: "row", alignItems: "flex-end", gap: 2.5 },
+  wave: { height: 36, flexDirection: "row", alignItems: "flex-end", gap: 2.5 },
   bar: { flex: 1, borderRadius: 2 },
-  docWrap: { gap: 8, paddingVertical: 6 },
-  docLine: { height: 8, borderRadius: 4, backgroundColor: "rgba(243,230,225,0.14)" },
+  docWrap: { gap: 6 },
+  docLine: { height: 6, borderRadius: 4, backgroundColor: "rgba(243,230,225,0.14)" },
   controls: { flexDirection: "row", alignItems: "center", gap: 12 },
-  play: { width: 44, height: 44, borderRadius: 22, backgroundColor: palette.cream, alignItems: "center", justifyContent: "center" },
+  play: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.cream, alignItems: "center", justifyContent: "center" },
   track: { flex: 1, height: 4, borderRadius: 2, backgroundColor: "rgba(243,230,225,0.15)", overflow: "hidden" },
   fill: { height: "100%", backgroundColor: palette.red400 },
 });

@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { View, useWindowDimensions } from "react-native";
 import Animated, { ZoomIn } from "react-native-reanimated";
 import { Flashcard, type FlashcardHandle } from "@/components/review/Flashcard";
-import { Button, Small } from "@/components/ui";
+import { Button } from "@/components/ui";
 import type { Flashcard as Card } from "@/lib/mock/types";
 
 /** Item-scoped flashcards: same 3D card as Review, cycling through the deck. */
@@ -23,6 +23,7 @@ export function Deck({ cards, source }: { cards: Card[]; source: string }) {
           index={i % cards.length}
           total={cards.length}
           width={w}
+          height={Math.round(w * 0.78)}
           source={source}
           onFlip={setFlipped}
           onRated={() => {
@@ -38,7 +39,6 @@ export function Deck({ cards, source }: { cards: Card[]; source: string }) {
           </Button>
         ))}
       </View>
-      <Small style={{ marginTop: 10 }}>{flipped ? "Swipe right if you knew it, left to see it again" : "Tap the card to see the answer"}</Small>
     </View>
   );
 }

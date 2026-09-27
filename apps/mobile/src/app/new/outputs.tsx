@@ -57,7 +57,8 @@ export default function Outputs() {
   return (
     <Screen>
       <TopBar title={params.label} />
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 140 }}>
+      {/* Type card and question stay put; only the checklist scrolls. */}
+      <View style={{ paddingHorizontal: 20, paddingBottom: 12 }}>
         <Rise>
           <View style={[styles.hero, { backgroundColor: nt.color }]}>
             <NoteTypeShape type={nt.key} width={220} height={60} />
@@ -77,8 +78,9 @@ export default function Outputs() {
           </H>
           <Body style={{ marginTop: 4 }}>Transcript and chat are always included.</Body>
         </Rise>
-
-        <View style={{ gap: 8, marginTop: 16 }}>
+      </View>
+      <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 140 }}>
+        <View style={{ gap: 8, marginTop: 4 }}>
           {nt.defaults.map((k, i) => (
             <Rise key={k} index={i} delay={120}>
               <Row k={k} on={selected.has(k)} onToggle={() => toggle(k)} />

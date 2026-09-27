@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import Animated, { FadeOut, LinearTransition } from "react-native-reanimated";
 import { ActionRow } from "@/components/actions/ActionRow";
 import { ArtPlaceholder, Body, Display, Eyebrow, Rise, Screen, SerifAccent, SlidingTabs } from "@/components/ui";
 import { actionsStore, useActions } from "@/lib/actions-store";
 import { itemById } from "@/lib/mock/items";
+import { palette } from "@/theme";
 
 type Tab = "open" | "done";
 
@@ -26,34 +27,33 @@ export default function Actions() {
 
   return (
     <Screen>
+      {/* Title and Open/Done tabs stay put; only the list scrolls. */}
+      <View style={styles.header}>
+        <Rise>
+          <Eyebrow>
+            {openCount} open · across {meetings} meetings
+          </Eyebrow>
+          <Display size={40} style={{ marginTop: 6 }}>
+            Action <SerifAccent size={46}>items</SerifAccent>
+          </Display>
+        </Rise>
+        <Rise delay={60} style={{ marginTop: 16 }}>
+          <SlidingTabs
+            tone="ink"
+            value={tab}
+            onChange={setTab}
+            items={[
+              { value: "open", label: "Open", badge: openCount },
+              { value: "done", label: "Done", badge: all.length - openCount },
+            ]}
+          />
+        </Rise>
+      </View>
       <Animated.FlatList
         data={visible}
         keyExtractor={(a) => a.id}
         itemLayoutAnimation={LinearTransition.springify().damping(18)}
-        contentContainerStyle={{ paddingBottom: 32, gap: 10 }}
-        ListHeaderComponent={
-          <View style={{ paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 }}>
-            <Rise>
-              <Eyebrow>
-                {openCount} open · across {meetings} meetings
-              </Eyebrow>
-              <Display size={40} style={{ marginTop: 6 }}>
-                Action <SerifAccent size={46}>items</SerifAccent>
-              </Display>
-            </Rise>
-            <Rise delay={60} style={{ marginTop: 16 }}>
-              <SlidingTabs
-                tone="ink"
-                value={tab}
-                onChange={setTab}
-                items={[
-                  { value: "open", label: "Open", badge: openCount },
-                  { value: "done", label: "Done", badge: all.length - openCount },
-                ]}
-              />
-            </Rise>
-          </View>
-        }
+        contentContainerStyle={{ paddingTop: 14, paddingBottom: 32, gap: 10 }}
         renderItem={({ item, index }) => (
           <Animated.View exiting={FadeOut.duration(200)} style={{ paddingHorizontal: 20 }}>
             <Rise index={Math.min(index, 6)} delay={100}>
@@ -84,3 +84,13 @@ export default function Actions() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: palette.line,
+  },
+});

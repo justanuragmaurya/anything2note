@@ -1,18 +1,16 @@
 import type { ReactNode } from "react";
 import { Pressable, type PressableProps, type StyleProp, type ViewStyle } from "react-native";
-import { cssInterop } from "nativewind";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { haptic } from "@/lib/haptics";
 import { motion } from "@/theme";
 
+// No NativeWind cssInterop here: it replaced the style array (flex, flexDirection,
+// padding…) on every pressable. Style pressables with `style`, not `className`.
 const APressable = Animated.createAnimatedComponent(Pressable);
-// Let NativeWind `className` flow into the animated pressable's style.
-cssInterop(APressable, { className: "style" });
 
 type Props = Omit<PressableProps, "style" | "children"> & {
   children?: ReactNode;
   style?: StyleProp<ViewStyle>;
-  className?: string;
   /** Scale while pressed (design system: 0.97). */
   scaleTo?: number;
   haptics?: "tap" | "press" | "select" | false;

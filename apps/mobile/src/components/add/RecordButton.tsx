@@ -29,7 +29,7 @@ function Ring({ delay, active, size }: { delay: number; active: boolean; size: n
 }
 
 /** The hero: big red circular record button with a pulsing ring (`.rec-pulse`). */
-export function RecordButton({ state, onPress, size = 148 }: Props) {
+export function RecordButton({ state, onPress, size = 120 }: Props) {
   const recording = state === "recording";
   const inner = useSharedValue(1);
   useEffect(() => {
@@ -37,19 +37,19 @@ export function RecordButton({ state, onPress, size = 148 }: Props) {
   }, [inner, state]);
   // Mic glyph (idle) morphs into a rounded stop square (recording/paused).
   const glyph = useAnimatedStyle(() => ({
-    width: 34 + inner.value * 10,
-    height: 34 + inner.value * 10,
+    width: 30 + inner.value * 8,
+    height: 30 + inner.value * 8,
     borderRadius: 8 + inner.value * 14,
     opacity: 1 - inner.value,
   }));
   const mic = useAnimatedStyle(() => ({ opacity: inner.value, transform: [{ scale: 0.6 + inner.value * 0.4 }] }));
 
   return (
-    <View style={{ width: size * 1.6, height: size * 1.6, alignItems: "center", justifyContent: "center" }}>
+    <View style={{ width: size * 1.35, height: size * 1.35, alignItems: "center", justifyContent: "center" }}>
       <Ring delay={0} active={recording} size={size} />
       <Ring delay={600} active={recording} size={size} />
       <Ring delay={1200} active={recording} size={size} />
-      <View style={[styles.halo, { width: size + 28, height: size + 28, borderRadius: (size + 28) / 2 }]} />
+      <View style={[styles.halo, { width: size + 24, height: size + 24, borderRadius: (size + 24) / 2 }]} />
       <PressableScale
         onPress={onPress}
         haptics="press"
@@ -62,7 +62,7 @@ export function RecordButton({ state, onPress, size = 148 }: Props) {
         <View style={[StyleSheet.absoluteFill, styles.highlight, { borderRadius: size / 2 }]} />
         <Animated.View style={[styles.stop, glyph]} />
         <Animated.View style={[StyleSheet.absoluteFill, styles.center, mic]}>
-          <Icon name="mic" size={46} color={palette.cream} weight="semibold" />
+          <Icon name="mic" size={40} color={palette.cream} weight="semibold" />
         </Animated.View>
       </PressableScale>
     </View>

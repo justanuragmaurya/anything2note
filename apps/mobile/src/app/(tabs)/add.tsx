@@ -61,13 +61,13 @@ export default function Add() {
 
   return (
     <Screen>
+      <Rise className="px-5 pt-4">
+        <Eyebrow>New item</Eyebrow>
+        <Display size={40} style={{ marginTop: 6 }}>
+          Add <SerifAccent size={46}>anything</SerifAccent>
+        </Display>
+      </Rise>
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-        <Rise className="px-5 pt-4">
-          <Eyebrow>New item</Eyebrow>
-          <Display size={40} style={{ marginTop: 6 }}>
-            Add <SerifAccent size={46}>anything</SerifAccent>
-          </Display>
-        </Rise>
 
         {consent ? (
           <Animated.View entering={FadeInDown.delay(80)} exiting={FadeOut.duration(180)} layout={LinearTransition} style={styles.consent}>
@@ -86,9 +86,11 @@ export default function Add() {
           <Animated.Text key={live ? "t" : "i"} entering={FadeIn} style={[styles.timer, live && { color: palette.ink }]}>
             {live ? fmtTime(seconds) : "Tap to record"}
           </Animated.Text>
-          <View style={{ alignSelf: "stretch", paddingHorizontal: 28, marginTop: 14 }}>
-            <LiveWaveform active={rec === "recording"} />
-          </View>
+          {live ? (
+            <Animated.View entering={FadeIn} exiting={FadeOut.duration(150)} style={{ alignSelf: "stretch", paddingHorizontal: 28, marginTop: 12 }}>
+              <LiveWaveform active={rec === "recording"} height={40} />
+            </Animated.View>
+          ) : null}
           {live ? (
             <Animated.View entering={FadeInDown.springify().damping(16)} exiting={FadeOut.duration(150)} style={styles.controls}>
               <Button
@@ -106,7 +108,7 @@ export default function Add() {
               </Button>
             </Animated.View>
           ) : (
-            <Small style={{ marginTop: 14, textAlign: "center" }}>Keeps recording with the screen locked · up to 60 min on Free</Small>
+            <Small style={{ marginTop: 6, textAlign: "center", paddingHorizontal: 28 }}>Records with the screen locked · 60 min max on Free</Small>
           )}
           {rec === "paused" ? (
             <Animated.View entering={FadeIn} exiting={FadeOut}>
@@ -178,8 +180,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.red100,
   },
-  recorder: { alignItems: "center", paddingTop: 4, paddingBottom: 24 },
-  timer: { fontFamily: fontFamily.mono, fontSize: 30, letterSpacing: 1, color: palette.muted, marginTop: -8 },
+  recorder: { alignItems: "center", paddingTop: 4, paddingBottom: 20 },
+  timer: { fontFamily: fontFamily.mono, fontSize: 20, letterSpacing: 0.5, color: palette.muted },
   controls: { flexDirection: "row", gap: 10, marginTop: 18 },
   grid: { gap: 10 },
   row: { flexDirection: "row", gap: 10 },

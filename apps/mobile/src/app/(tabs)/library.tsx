@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { RefreshControl, ScrollView, TextInput, View } from "react-native";
+import { RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import Animated, { LinearTransition } from "react-native-reanimated";
 import { ItemCard } from "@/components/library/ItemCard";
@@ -27,45 +27,44 @@ export default function Library() {
 
   return (
     <Screen>
+      {/* Header, search and filters stay put; only the list scrolls. */}
+      <View style={styles.header}>
+        <Rise className="px-5 pt-4">
+          <Eyebrow>{ITEMS.length} items · 2 processing</Eyebrow>
+          <Display size={44} style={{ marginTop: 6 }}>
+            Your <SerifAccent size={50}>library</SerifAccent>
+          </Display>
+        </Rise>
+
+        <Rise delay={60} className="mx-5 mt-4 h-12 flex-row items-center gap-2.5 rounded-full border border-line bg-card px-4">
+          <Icon name="search" size={16} color={palette.muted} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Search notes, transcripts, files"
+            placeholderTextColor={palette.muted}
+            returnKeyType="search"
+            clearButtonMode="while-editing"
+            style={{ flex: 1, fontFamily: fontFamily.sans, fontSize: 15, color: palette.ink, height: "100%" }}
+          />
+        </Rise>
+
+        <Rise delay={120}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 12 }}>
+            <Chip label="All" active={filter === "all"} onPress={() => setFilter("all")} />
+            {NOTE_TYPES.map((n) => (
+              <Chip key={n.key} label={n.label} noteType={n.key} active={filter === n.key} onPress={() => setFilter(filter === n.key ? "all" : n.key)} />
+            ))}
+          </ScrollView>
+        </Rise>
+      </View>
       <Animated.FlatList
         data={items}
         keyExtractor={(i) => i.id}
         itemLayoutAnimation={LinearTransition.springify().damping(18)}
-        contentContainerStyle={{ paddingBottom: 32, gap: 10 }}
+        contentContainerStyle={{ paddingTop: 12, paddingBottom: 32, gap: 10 }}
         keyboardDismissMode="on-drag"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.red500} colors={[palette.red500]} />}
-        ListHeaderComponent={
-          <View className="pb-2">
-            <Rise className="px-5 pt-4">
-              <Eyebrow>{ITEMS.length} items · 2 processing</Eyebrow>
-              <Display size={44} style={{ marginTop: 6 }}>
-                Your <SerifAccent size={50}>library</SerifAccent>
-              </Display>
-            </Rise>
-
-            <Rise delay={60} className="mx-5 mt-4 h-12 flex-row items-center gap-2.5 rounded-full border border-line bg-card px-4">
-              <Icon name="search" size={16} color={palette.muted} />
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder="Search notes, transcripts, files"
-                placeholderTextColor={palette.muted}
-                returnKeyType="search"
-                clearButtonMode="while-editing"
-                style={{ flex: 1, fontFamily: fontFamily.sans, fontSize: 15, color: palette.ink, height: "100%" }}
-              />
-            </Rise>
-
-            <Rise delay={120}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 20, paddingVertical: 14 }}>
-                <Chip label="All" active={filter === "all"} onPress={() => setFilter("all")} />
-                {NOTE_TYPES.map((n) => (
-                  <Chip key={n.key} label={n.label} noteType={n.key} active={filter === n.key} onPress={() => setFilter(filter === n.key ? "all" : n.key)} />
-                ))}
-              </ScrollView>
-            </Rise>
-          </View>
-        }
         renderItem={({ item, index }) => (
           <Rise index={Math.min(index, 6)} delay={140} className="px-5">
             <ItemCard item={item} />
@@ -100,7 +99,7 @@ export default function Library() {
         }
         ListFooterComponent={
           items.length ? (
-            <PressableScale onPress={() => router.navigate("/add")} className="mx-5 mt-2 items-center rounded-3xl border border-dashed border-line-strong py-5">
+            <PressableScale onPress={() => router.navigate("/add")} style={styles.addMore}>
               <Eyebrow color={palette.inkSoft}>+ Add anything</Eyebrow>
             </PressableScale>
           ) : null
@@ -109,3 +108,17 @@ export default function Library() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  header: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.line },
+  addMore: {
+    marginHorizontal: 20,
+    marginTop: 2,
+    alignItems: "center",
+    paddingVertical: 20,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: palette.lineStrong,
+  },
+});

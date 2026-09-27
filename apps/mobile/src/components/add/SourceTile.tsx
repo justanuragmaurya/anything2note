@@ -10,7 +10,7 @@ export function SourceTile({ icon, title, hint, tint, onPress }: Props) {
       <View style={[styles.icon, { backgroundColor: tint }]}>
         <Icon name={icon} size={18} color={palette.ink} />
       </View>
-      <View style={{ gap: 2 }}>
+      <View style={{ gap: 2, marginTop: 10 }}>
         <Label>{title}</Label>
         <Small numberOfLines={2}>{hint}</Small>
       </View>
@@ -21,8 +21,7 @@ export function SourceTile({ icon, title, hint, tint, onPress }: Props) {
 const styles = StyleSheet.create({
   tile: {
     flex: 1,
-    minHeight: 124,
-    justifyContent: "space-between",
+    minHeight: 108,
     padding: 14,
     borderRadius: 22,
     borderWidth: 1,

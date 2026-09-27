@@ -23,15 +23,16 @@ export default function PickType() {
   };
 
   return (
-    <ScrollView style={{ backgroundColor: palette.paper }} contentContainerStyle={{ padding: 20, paddingTop: 28, paddingBottom: 48 }}>
-      <Rise>
+    // Form sheets size around a root ScrollView, so the heading is pinned with a sticky header.
+    <ScrollView style={{ backgroundColor: palette.paper }} contentContainerStyle={{ paddingBottom: 48 }} stickyHeaderIndices={[0]}>
+      <Rise style={{ paddingHorizontal: 20, paddingTop: 28, paddingBottom: 16, backgroundColor: palette.paper }}>
         <Eyebrow numberOfLines={1}>{label}</Eyebrow>
         <H level={1} style={{ marginTop: 6 }}>
           What <SerifAccent>is</SerifAccent> it?
         </H>
         <Body style={{ marginTop: 6 }}>The type decides which notes you get. You can change it later.</Body>
       </Rise>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 20 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10, paddingHorizontal: 20 }}>
         {options.map((t, i) => (
           <Rise key={t === "auto" ? "auto" : t.key} index={i} delay={80}>
             <NoteTypeCard
