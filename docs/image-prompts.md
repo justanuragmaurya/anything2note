@@ -1,5 +1,9 @@
 # Image prompts: anything2note
 
+> **Status:** every image below except `flow-notebook-hand` (optional, unused) and `app-icon` is generated and wired in. They were made with ChatGPT image generation as transparent PNGs, one prompt per image, using the preambles below. The PNGs were then trimmed to their content and converted to WebP. Web files are in `apps/web/public/art/`; mobile files (`empty-*`, `onboarding-*`) are in `apps/mobile/assets/art/`.
+> `og-default.jpg` is composited in code from the hero cut-outs, with the headline set in DM Sans and Instrument Serif.
+> To replace an image, keep its id, match the new file's `aspect` in `apps/web/src/lib/art.ts` (or `ART` in `apps/mobile/src/components/ui/ArtPlaceholder.tsx`), and keep `ready: true`.
+
 Each image has an **id**. That id is shown on its placeholder tile on the site or in the app, and it is also the filename.
 
 **How to hand them back:** send me the files named `<id>.png` (or `.jpg` where noted). I'll put the web ones in `apps/web/public/art/` and the mobile ones in `apps/mobile/assets/art/`, then set `ready: true` in the art registry.

@@ -32,6 +32,7 @@ import { SampleDocument } from "@/components/marketing/sample-document";
 import { UseCaseHero } from "@/components/marketing/use-case-hero";
 import { getUseCase, USE_CASE_SLUGS, USE_CASES, type BenefitIcon } from "@/lib/mock/marketing-use-cases";
 import { noteType, OUTPUT_LABELS } from "@/lib/mock/note-types";
+import { OG_IMAGE } from "@/lib/og";
 
 type Props = { params: Promise<{ useCase: string }> };
 
@@ -73,8 +74,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: `${uc.metaTitle} · anything2note`,
       description: uc.metaDescription,
       siteName: "anything2note",
+      images: [OG_IMAGE],
     },
-    twitter: { card: "summary_large_image", title: uc.metaTitle, description: uc.metaDescription },
+    twitter: { card: "summary_large_image", title: uc.metaTitle, description: uc.metaDescription, images: [OG_IMAGE.url] },
   };
 }
 

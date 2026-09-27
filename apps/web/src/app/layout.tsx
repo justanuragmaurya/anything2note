@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { DM_Sans, Instrument_Serif, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { OG_IMAGE } from "@/lib/og";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -28,6 +29,15 @@ export const metadata: Metadata = {
   },
   description:
     "Drop in a YouTube link, a meeting recording, a PDF, slides or a whiteboard photo. Get detailed notes, minutes, action items, flashcards and quizzes — plus an AI assistant for every item.",
+  openGraph: {
+    type: "website",
+    siteName: "anything2note",
+    images: [OG_IMAGE],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: [OG_IMAGE.url],
+  },
 };
 
 export const viewport: Viewport = {

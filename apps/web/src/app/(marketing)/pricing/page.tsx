@@ -10,6 +10,7 @@ import { ComparisonTable } from "@/components/marketing/comparison-table";
 import { PageHero } from "@/components/marketing/page-hero";
 import { AppleLogo, PlayLogo } from "@/components/marketing/brand-icons";
 import { BILLING_FAQ, COUNTING } from "@/lib/mock/marketing-pricing";
+import { OG_IMAGE } from "@/lib/og";
 
 export const metadata: Metadata = {
   title: "Pricing",
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
     title: "Pricing · anything2note",
     description: "Start free. Upgrade when it sticks. Priced by minutes and pages, in INR or USD.",
     url: "/pricing",
+    images: [OG_IMAGE],
   },
 };
 

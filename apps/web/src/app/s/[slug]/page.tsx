@@ -7,6 +7,7 @@ import { Reveal } from "@/components/ui/reveal";
 import { SharedTabs } from "@/components/marketing/shared-tabs";
 import { getSharedNote, SHARED_SLUGS } from "@/lib/mock/marketing-shared";
 import { noteType, OUTPUT_LABELS } from "@/lib/mock/note-types";
+import { OG_IMAGE } from "@/lib/og";
 
 type Props = { params: Promise<{ slug: string }> };
 
@@ -21,7 +22,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: note.title,
     description: note.summary,
     robots: { index: false, follow: true },
-    openGraph: { title: note.title, description: note.summary, type: "article" },
+    openGraph: { title: note.title, description: note.summary, type: "article", images: [OG_IMAGE] },
   };
 }
 
