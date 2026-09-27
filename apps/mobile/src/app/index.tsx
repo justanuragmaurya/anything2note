@@ -1,17 +1,10 @@
-import { Text, View, StyleSheet } from "react-native";
+import { Redirect } from "expo-router";
+import { useSession } from "@/lib/session";
 
+/** Entry: first launch → onboarding → sign-in → Library. */
 export default function Index() {
-  return (
-    <View style={styles.container}>
-      <Text>Edit src/app/index.tsx to edit this screen.</Text>
-    </View>
-  );
+  const { onboarded, email } = useSession();
+  if (!onboarded) return <Redirect href="/onboarding" />;
+  if (!email) return <Redirect href="/sign-in" />;
+  return <Redirect href="/library" />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});

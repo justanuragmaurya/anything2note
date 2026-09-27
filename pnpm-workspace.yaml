@@ -2,4 +2,13 @@ packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
+  esbuild: true
   unrs-resolver: false
+  workerd: true
+# react-native-worklets' Babel plugin imports these without declaring them; pin to
+# Babel 7 so pnpm doesn't resolve them to the Babel 8 pulled in by packages/eslint-config.
+packageExtensions:
+  react-native-worklets:
+    dependencies:
+      "@babel/generator": "^7"
+      "@babel/traverse": "^7"
