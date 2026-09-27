@@ -515,3 +515,105 @@ body {
     transform: none;
   }
 }
+
+/* ── app screens ── */
+
+@keyframes app-stripes {
+  to { background-position: 28px 0; }
+}
+@keyframes app-pop {
+  0% { transform: scale(0.6); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+@keyframes app-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes app-palette {
+  from { opacity: 0; transform: translateY(-8px) scale(0.97); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes app-wave {
+  0%, 100% { transform: scaleY(0.25); }
+  50% { transform: scaleY(1); }
+}
+@keyframes app-menu {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes app-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes app-page-flash {
+  0% { box-shadow: 0 0 0 0 rgba(229, 55, 43, 0.55), 0 18px 40px -20px rgba(60, 20, 10, 0.4); transform: translateY(6px); opacity: 0.6; }
+  60% { box-shadow: 0 0 0 6px rgba(229, 55, 43, 0), 0 18px 40px -20px rgba(60, 20, 10, 0.4); }
+  100% { box-shadow: 0 0 0 0 rgba(229, 55, 43, 0), 0 18px 40px -20px rgba(60, 20, 10, 0.4); transform: none; opacity: 1; }
+}
+
+@layer components {
+  /* Striped red bar for in-flight processing */
+  .progress-shimmer {
+    background-color: var(--red-500);
+    background-image: repeating-linear-gradient(-45deg, rgba(255, 251, 245, 0.28) 0 7px, transparent 7px 14px);
+    background-size: 28px 100%;
+    animation: app-stripes 0.9s linear infinite;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .tick-pop {
+    animation: app-pop 0.35s var(--ease-spring);
+  }
+  .palette-fade {
+    animation: app-fade 0.2s var(--ease-out) both;
+  }
+  .palette-pop {
+    animation: app-palette 0.28s var(--ease-spring) both;
+  }
+  .menu-pop {
+    transform-origin: top right;
+    animation: app-menu 0.18s var(--ease-out) both;
+  }
+  /* Live recording waveform bar; set --d for stagger */
+  .wave-bar {
+    transform-origin: center;
+    animation: app-wave 0.9s ease-in-out infinite;
+    animation-delay: var(--d, 0ms);
+  }
+  .wave-bar[data-paused="true"] {
+    animation-play-state: paused;
+  }
+  .page-flash {
+    animation: app-page-flash 0.6s var(--ease-out) both;
+  }
+  .spin {
+    animation: app-spin 0.9s linear infinite;
+  }
+  /* Flip card faces */
+  .flip-scene {
+    perspective: 1400px;
+  }
+  .flip-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+    transition: transform 0.7s var(--ease-spring);
+  }
+  .flip-inner[data-flipped="true"] {
+    transform: rotateY(180deg);
+  }
+  .flip-face {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  .flip-back {
+    transform: rotateY(180deg);
+  }
+}
