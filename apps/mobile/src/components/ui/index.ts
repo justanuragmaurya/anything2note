@@ -11,5 +11,5 @@ export { Screen } from "./Screen";
 export { Skeleton } from "./Skeleton";
 export { SlidingTabs, type TabItem } from "./SlidingTabs";
 export { Body, Display, Eyebrow, H, Label, Mono, SerifAccent, Small } from "./Text";
-export { SeekContext, TimestampChip } from "./TimestampChip";
+export { AnchorChip, AnchorContext } from "./AnchorChip";
 export { Caret } from "./Caret";

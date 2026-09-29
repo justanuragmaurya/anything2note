@@ -10,7 +10,7 @@ const META: Record<string, { label: string; icon: IconName }> = {
   library: { label: "Library", icon: "library" },
   add: { label: "Add", icon: "add" },
   review: { label: "Review", icon: "review" },
-  actions: { label: "Actions", icon: "actions" },
+  tasks: { label: "Tasks", icon: "tasks" },
   profile: { label: "Profile", icon: "profile" },
 };
 

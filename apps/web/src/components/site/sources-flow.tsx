@@ -14,15 +14,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { LogoMark } from "@/components/ui/logo";
-import { NOTE_TYPES, OUTPUT_LABELS, type NoteTypeKey } from "@/lib/mock/note-types";
+import { NOTE_TYPES, OUTPUT_LABELS, type NoteTypeKey } from "@/lib/note-types";
 
 type Source = { label: string; icon: LucideIcon; suggests: NoteTypeKey };
 
 const SOURCES: Source[] = [
   { label: "YouTube link", icon: MonitorPlay, suggests: "lecture" },
-  { label: "Audio file", icon: AudioLines, suggests: "meeting" },
+  { label: "Audio file", icon: AudioLines, suggests: "interview" },
   { label: "Video file", icon: Video, suggests: "podcast" },
-  { label: "Live recording", icon: Mic, suggests: "meeting" },
+  { label: "Class recording", icon: Mic, suggests: "lecture" },
   { label: "PDF", icon: FileText, suggests: "reading" },
   { label: "Slides & docs", icon: Presentation, suggests: "lecture" },
   { label: "Photo / whiteboard", icon: ImageIcon, suggests: "general" },

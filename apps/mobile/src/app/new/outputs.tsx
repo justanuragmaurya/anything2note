@@ -6,8 +6,7 @@ import Animated, { useAnimatedStyle, withSpring } from "react-native-reanimated"
 import { TopBar } from "@/components/navigation/TopBar";
 import { NoteTypeShape } from "@/components/note-type/NoteTypeShape";
 import { Body, Button, Eyebrow, H, Icon, Label, PressableScale, Rise, Screen, SerifAccent, Small } from "@/components/ui";
-import { detectType, parseSource } from "@/lib/flow";
-import { NOTE_TYPES, OUTPUT_LABELS, noteType, type NoteTypeKey, type OutputKey } from "@/lib/note-types";
+import { OUTPUT_LABELS, noteType, type NoteTypeKey, type OutputKey } from "@/lib/note-types";
 import { palette, spring } from "@/theme";
 
 function Check({ on }: { on: boolean }) {
@@ -34,10 +33,7 @@ function Row({ k, on, onToggle, optional }: { k: OutputKey; on: boolean; onToggl
 export default function Outputs() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ source?: string; label?: string; type?: string }>();
-  const source = parseSource(params.source);
-  const auto = params.type === "auto" || !NOTE_TYPES.some((n) => n.key === params.type);
-  const typeKey: NoteTypeKey = auto ? detectType(source) : (params.type as NoteTypeKey);
-  const nt = noteType(typeKey);
+  const nt = noteType(params.type as NoteTypeKey);
   const [selected, setSelected] = useState<Set<OutputKey>>(() => new Set(nt.defaults));
 
   const toggle = (k: OutputKey) =>
@@ -51,7 +47,7 @@ export default function Outputs() {
   const go = () =>
     router.push({
       pathname: "/new/progress",
-      params: { source, label: params.label ?? "", type: typeKey, outputs: [...selected].join(",") },
+      params: { source: params.source ?? "", label: params.label ?? "", type: nt.key, outputs: [...selected].join(",") },
     });
 
   return (
@@ -63,7 +59,7 @@ export default function Outputs() {
           <View style={[styles.hero, { backgroundColor: nt.color }]}>
             <NoteTypeShape type={nt.key} width={220} height={60} />
             <Eyebrow color={palette.inkSoft} style={{ marginTop: 14 }}>
-              {auto ? "Auto-detected" : "Note type"}
+              Note type
             </Eyebrow>
             <SerifAccent upright color={palette.ink} size={34}>
               {nt.label}

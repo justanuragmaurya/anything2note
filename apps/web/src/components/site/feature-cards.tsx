@@ -16,16 +16,16 @@ const CARDS: { art: ArtId; bg: string; kicker: string; title: React.ReactNode; b
     footer: "Flashcards · Quizzes · FSRS reviews",
   },
   {
-    art: "feature-meeting",
-    bg: "var(--nt-meeting)",
-    kicker: "02 · Meet",
+    art: "feature-lecture-recording",
+    bg: "var(--nt-podcast)",
+    kicker: "02 · Record",
     title: (
       <>
-        Leave with <span className="serif-accent">minutes.</span>
+        Just <span className="serif-accent">listen.</span>
       </>
     ),
-    body: "Proper minutes of meeting, decisions and action items with owners — tracked across every meeting, tickable, and ready to email.",
-    footer: "Minutes · Action items · Speakers",
+    body: "Hit record in class and leave the notes to us: everything the lecturer taught, in order, plus every homework, reading and exam date they mentioned.",
+    footer: "Class recordings · Detailed notes · Deadlines",
   },
   {
     art: "feature-assistant",
@@ -36,7 +36,7 @@ const CARDS: { art: ArtId; bg: string; kicker: string; title: React.ReactNode; b
         Talk to your <span className="serif-accent">notes.</span>
       </>
     ),
-    body: "Every item comes with an assistant that answers with timestamps and page numbers — a tutor for lectures, a chief of staff for meetings.",
+    body: "Every item comes with an assistant that answers with timestamps and page numbers — a tutor for lectures, a research assistant for papers.",
     footer: "Cited answers · Any language",
   },
 ];

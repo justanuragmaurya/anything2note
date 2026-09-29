@@ -17,14 +17,6 @@ export function NoteTypeShape({ type, width = 240, height = 90 }: { type: NoteTy
           ))}
         </Svg>
       );
-    case "meeting":
-      return (
-        <Svg {...common}>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <Circle key={i} cx={46 + i * 37} cy={45} r={27} fill="none" stroke={c} strokeWidth={7} />
-          ))}
-        </Svg>
-      );
     case "interview":
       return (
         <Svg {...common}>

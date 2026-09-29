@@ -1,16 +1,10 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
-import { Workspace } from "@/components/app/workspace/workspace";
-import { getWorkspace, LIBRARY, type Anchor } from "@/lib/mock/app-data";
+import type { Anchor } from "@a2n/shared";
+import { WorkspaceLoader } from "@/components/app/workspace/workspace";
 
-export function generateStaticParams() {
-  return LIBRARY.map((i) => ({ id: i.id }));
-}
-
-export async function generateMetadata({ params }: PageProps<"/app/i/[id]">): Promise<Metadata> {
-  const { id } = await params;
-  return { title: getWorkspace(id)?.item.title ?? "Not found" };
-}
+// The session cookie belongs to the API origin, so the item loads in the browser (the tab
+// title is set there once it arrives).
+export const metadata: Metadata = { title: "Note" };
 
 function initialAnchor(sp: Record<string, string | string[] | undefined>): Anchor | undefined {
   const t = Number(sp.t);
@@ -22,8 +16,6 @@ function initialAnchor(sp: Record<string, string | string[] | undefined>): Ancho
 
 export default async function ItemPage({ params, searchParams }: PageProps<"/app/i/[id]">) {
   const { id } = await params;
-  const ws = getWorkspace(id);
-  if (!ws) notFound();
   const initial = initialAnchor(await searchParams);
-  return <Workspace key={id} ws={ws} initial={initial} />;
+  return <WorkspaceLoader key={id} id={id} initial={initial} />;
 }

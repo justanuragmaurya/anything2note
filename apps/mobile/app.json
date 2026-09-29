@@ -8,9 +8,11 @@
     "scheme": "anything2note",
     "userInterfaceStyle": "light",
     "ios": {
+      "bundleIdentifier": "com.anything2note.app",
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.anything2note.app",
       "adaptiveIcon": {
         "backgroundColor": "#f6f1ea",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -32,7 +34,24 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      "expo-secure-store",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "anything2note records lectures and meetings you choose to turn into notes.",
+          "enableBackgroundRecording": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "anything2note photographs whiteboards, handouts and pages you choose to turn into notes.",
+          "photosPermission": "anything2note turns photos you pick into notes.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

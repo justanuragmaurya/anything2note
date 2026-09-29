@@ -14,7 +14,7 @@ const COLUMNS = [
   {
     title: "Use cases",
     links: [
-      { href: "/meeting-minutes", label: "Meeting minutes" },
+      { href: "/record-lectures", label: "Lecture recorder" },
       { href: "/lecture-notes", label: "Lecture notes" },
       { href: "/youtube-to-notes", label: "YouTube to notes" },
       { href: "/pdf-to-notes", label: "PDF to notes" },

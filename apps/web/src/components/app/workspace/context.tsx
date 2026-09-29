@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import type { Anchor } from "@/lib/mock/app-data";
+import type { Anchor } from "@a2n/shared";
 
 export type WorkspaceNav = {
   /** current playback time (media) in seconds */

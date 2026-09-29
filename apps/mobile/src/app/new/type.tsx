@@ -2,24 +2,25 @@ import { ScrollView, View, useWindowDimensions } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { NoteTypeCard } from "@/components/note-type/NoteTypeCard";
 import { Body, Eyebrow, H, Rise, SerifAccent } from "@/components/ui";
-import { parseSource } from "@/lib/flow";
 import { NOTE_TYPES, type NoteType } from "@/lib/note-types";
-import { useSession } from "@/lib/session";
+import { usePreferences } from "@/lib/preferences";
 import { palette } from "@/theme";
 
 /** Sheet: pick what kind of content this is. */
 export default function PickType() {
   const { width } = useWindowDimensions();
   const params = useLocalSearchParams<{ source?: string; label?: string }>();
-  const source = parseSource(params.source);
+  const source = params.source ?? "";
   const label = params.label ?? "New item";
-  const { prefs } = useSession();
+  const { prefs } = usePreferences();
   const cardW = (Math.min(width, 520) - 20 * 2 - 10) / 2;
   const options: (NoteType | "auto")[] = ["auto", ...NOTE_TYPES];
 
   const pick = (t: NoteType | "auto") => {
     router.back();
-    router.push({ pathname: "/new/outputs", params: { source, label, type: t === "auto" ? "auto" : t.key } });
+    // Auto-detect has no outputs to choose yet: the API reads the source, picks the type and makes its defaults.
+    if (t === "auto") router.push({ pathname: "/new/progress", params: { source, label, type: "auto" } });
+    else router.push({ pathname: "/new/outputs", params: { source, label, type: t.key } });
   };
 
   return (

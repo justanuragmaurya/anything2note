@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
+  AlertCircle,
   ArrowLeft,
   Check,
   ChevronDown,
@@ -10,62 +12,85 @@ import {
   Download,
   FileDown,
   FileText,
-  Link2,
-  Mail,
+  Folder,
+  Loader2,
   MessageSquare,
+  MoreHorizontal,
   Pencil,
   Plus,
-  RefreshCw,
+  RotateCcw,
   ScrollText,
-  Share2,
   Sparkles,
+  Trash2,
 } from "lucide-react";
+import type { Anchor, ItemDetail, OutputData, OutputEntry } from "@a2n/shared";
 import { SlidingTabs } from "@/components/ui/sliding-tabs";
-import { relativeDate, type Anchor, type OutputData, type Workspace as WorkspaceData } from "@/lib/mock/app-data";
-import { noteType, OUTPUT_LABELS, type OutputKey } from "@/lib/mock/note-types";
+import { api, ApiError, errorMessage } from "@/lib/api";
+import { download, fileSafe, flashcardsCsv, toMarkdown } from "@/lib/export";
+import { MEDIA_KINDS, relativeDate } from "@/lib/format";
+import { noteType, OUTPUT_LABELS, type OutputKey } from "@/lib/note-types";
+import { isWorking, keys, useInvalidate, useItem, useLibrary } from "@/lib/queries";
 import { ProcessingBar, itemSize } from "../library/item-card";
 import { Menu, MenuItem, MenuLabel } from "../menu";
-import { SourceIcon } from "../ui";
+import { NotFoundView } from "../not-found-view";
+import { SourceIcon, inputCls } from "../ui";
 import { ChatView } from "./chat";
 import { WorkspaceNavContext, type WorkspaceNav } from "./context";
-import { MeetingRenderer } from "./renderers/meeting";
 import type { SharedState } from "./renderers/shared";
 import { StudyRenderer } from "./renderers/study";
+import { TasksRenderer } from "./renderers/tasks";
 import { TextRenderer } from "./renderers/text";
-import { chaptersFrom, MediaPlayer, PdfViewer } from "./source-viewer";
+import { WorkspaceSkeleton } from "./skeleton";
+import { chaptersFrom, ImageViewer, MediaPlayer, PageTextViewer, PdfViewer, SourceText, ViewerPlaceholder, type MediaState } from "./source-viewer";
 import { TranscriptView } from "./transcript";
 
 type TabKey = OutputKey | "transcript" | "chat";
 
 const SHORT: Partial<Record<OutputKey, string>> = {
-  minutes: "Minutes",
   summary: "Summary",
   detailed_notes: "Notes",
   revision_points: "Revision",
-  action_items: "Action items",
-  open_questions: "Open questions",
-  follow_up_email: "Follow-up email",
+  tasks: "Tasks",
   mind_map: "Mind map",
   code_snippets: "Code",
 };
 
-const tabLabel = (k: TabKey) => (k === "transcript" ? "Transcript" : k === "chat" ? "Chat" : (SHORT[k] ?? OUTPUT_LABELS[k]));
+/* ─────────────────────────── Loader ─────────────────────────── */
 
-/** Generic stand-in for outputs we don't have hand-written mock content for. */
-function fallbackOutput(ws: WorkspaceData, key: OutputKey): OutputData {
-  return {
-    type: "generic",
-    intro: `${OUTPUT_LABELS[key]}, generated from the source.`,
-    blocks: ws.transcript.slice(0, 4).map((l, i) => ({ title: `${OUTPUT_LABELS[key]} · ${i + 1}`, text: l.text, anchor: l.anchor })),
-  };
+/** Loads the item in the browser (the API session cookie isn't visible to the Next server). */
+export function WorkspaceLoader({ id, initial }: { id: string; initial?: Anchor }) {
+  const { data, error, refetch, isFetching } = useItem(id);
+  if (error instanceof ApiError && error.status === 404) return <NotFoundView />;
+  if (!data) {
+    if (!error) return <WorkspaceSkeleton />;
+    return (
+      <div className="rise mx-auto flex max-w-[520px] flex-col items-center py-16 text-center">
+        <AlertCircle className="size-7 text-red-500" />
+        <p className="mt-4 text-sm text-ink-soft">{errorMessage(error)}</p>
+        <button type="button" onClick={() => refetch()} disabled={isFetching} className="btn btn-ink btn-sm mt-5">
+          {isFetching ? <Loader2 className="spin size-3.5" /> : <RotateCcw className="size-3.5" />} Try again
+        </button>
+      </div>
+    );
+  }
+  return (
+    <Workspace
+      detail={data}
+      initial={initial}
+      freshMediaUrl={async () => {
+        const r = await refetch();
+        return r.data?.mediaUrl ?? null;
+      }}
+    />
+  );
 }
+
+/* ─────────────────────────── Pieces ─────────────────────────── */
 
 function Renderer({ data, state }: { data: OutputData; state: SharedState }) {
   switch (data.type) {
-    case "minutes":
-    case "actions":
-    case "decisions":
-      return <MeetingRenderer data={data} state={state} />;
+    case "tasks":
+      return <TasksRenderer data={data} state={state} />;
     case "flashcards":
     case "quiz":
       return <StudyRenderer data={data} state={state} />;
@@ -74,12 +99,12 @@ function Renderer({ data, state }: { data: OutputData; state: SharedState }) {
   }
 }
 
-function OutputSkeleton({ label }: { label: string }) {
+function OutputSkeleton({ label, queued }: { label: string; queued: boolean }) {
   return (
-    <div aria-busy="true" aria-label={`Generating ${label}`}>
+    <div aria-busy="true" aria-label={`${queued ? "Waiting to write" : "Writing"} ${label}`}>
       <p className="mb-5 flex items-center gap-2 font-mono text-[10px] tracking-[0.12em] text-red-600 uppercase">
-        <Sparkles className="spin size-3" /> Writing {label.toLowerCase()}
-        <span className="caret" />
+        <Sparkles className={`size-3 ${queued ? "" : "spin"}`} /> {queued ? `${label} is queued` : `Writing ${label.toLowerCase()}`}
+        {!queued && <span className="caret" />}
       </p>
       <div className="space-y-3">
         <div className="skeleton h-24 rounded-2xl" />
@@ -92,44 +117,135 @@ function OutputSkeleton({ label }: { label: string }) {
   );
 }
 
+function Failed({ title, error, canRetry, onRetry }: { title: string; error: string; canRetry: boolean; onRetry: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  return (
+    <div className="rounded-[22px] border border-red-200 bg-red-50 p-5" role="alert">
+      <p className="font-medium text-red-800">{title}</p>
+      <p className="mt-1 flex items-start gap-2 text-sm text-red-800/85">
+        <AlertCircle className="mt-0.5 size-4 shrink-0" /> {error}
+      </p>
+      {retryError && <p className="mt-2 text-[12px] text-red-700">{retryError}</p>}
+      {canRetry && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setRetryError(null);
+            try {
+              await onRetry();
+            } catch (e) {
+              setRetryError(errorMessage(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="btn btn-red btn-sm mt-4"
+        >
+          {busy ? <Loader2 className="spin size-3.5" /> : <RotateCcw className="size-3.5" />} Retry
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TitleEditor({ title, onSave, onCancel }: { title: string; onSave: (t: string) => Promise<void>; onCancel: () => void }) {
+  const [draft, setDraft] = useState(title);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form
+      className="mt-2 flex flex-wrap items-center gap-2"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const t = draft.trim();
+        if (!t || t === title) return onCancel();
+        setBusy(true);
+        setError(null);
+        try {
+          await onSave(t);
+        } catch (err) {
+          setError(errorMessage(err));
+          setBusy(false);
+        }
+      }}
+    >
+      <input
+        autoFocus
+        value={draft}
+        maxLength={200}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => e.key === "Escape" && onCancel()}
+        aria-label="Title"
+        className={`${inputCls} min-w-0 flex-1 !py-2 text-[20px] tracking-[-0.03em]`}
+      />
+      <button type="submit" disabled={busy} className="btn btn-red btn-sm">
+        {busy ? <Loader2 className="spin size-3.5" /> : <Check className="size-3.5" />} Save
+      </button>
+      <button type="button" onClick={onCancel} className="btn btn-ghost btn-sm">
+        Cancel
+      </button>
+      {error && <p className="w-full text-[12px] text-red-600">{error}</p>}
+    </form>
+  );
+}
+
 const iconBtn =
   "grid size-8 place-items-center rounded-full text-ink-soft transition-all duration-200 hover:bg-panel hover:text-ink active:scale-90 focus-visible:outline-2 focus-visible:outline-red-400";
 
-export function Workspace({ ws, initial }: { ws: WorkspaceData; initial?: Anchor }) {
-  const { item } = ws;
-  const nt = noteType(item.noteType);
-  const processing = item.status.state === "processing";
+/* ─────────────────────────── Workspace ─────────────────────────── */
 
-  /* ── player / viewer state ── */
-  const [time, setTime] = useState(initial?.kind === "time" ? initial.at : 0);
-  const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1);
+function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; initial?: Anchor; freshMediaUrl: () => Promise<string | null> }) {
+  const router = useRouter();
+  const invalidate = useInvalidate();
+  const { data: library } = useLibrary();
+  const { item, content } = detail;
+  const nt = noteType(item.noteType);
+  const working = isWorking(item);
+  const contentKind = content?.kind ?? null;
+  const segments = useMemo(() => content?.segments ?? [], [content]);
+  const isMedia = MEDIA_KINDS.includes(item.source);
+
+  useEffect(() => {
+    document.title = `${item.title} · anything2note`;
+  }, [item.title]);
+
+  /* ── source viewer ── */
+  // The signed URL changes on every fetch; keep the first one so polling doesn't reload the player.
+  const [mediaUrl, setMediaUrl] = useState(detail.mediaUrl);
+  const mediaRef = useRef<(HTMLVideoElement & HTMLAudioElement) | null>(null);
+  const [media, setMedia] = useState<MediaState>({ time: initial?.kind === "time" ? initial.at : 0, duration: item.durationSec ?? 0, playing: false, speed: 1, error: false });
   const [page, setPage] = useState(initial?.kind === "page" ? initial.page : 1);
   const [flash, setFlash] = useState(0);
   const viewerRef = useRef<HTMLDivElement>(null);
-  const duration = ws.viewer.kind === "media" ? ws.viewer.durationSec : 0;
+  const startAt = useRef(initial?.kind === "time" ? initial.at : 0);
+  const totalPages = item.pages ?? Math.max(1, ...segments.map((s) => (s.anchor?.kind === "page" ? s.anchor.page : 1)));
 
-  const timeRef = useRef(time);
-  useEffect(() => {
-    timeRef.current = time;
-  }, [time]);
+  const patchMedia = useCallback((p: Partial<MediaState>) => setMedia((m) => ({ ...m, ...p })), []);
 
   useEffect(() => {
-    if (!playing) return;
-    const id = setInterval(() => {
-      const next = timeRef.current + 0.25 * speed;
-      if (next >= duration) {
-        setTime(duration);
-        setPlaying(false);
-      } else setTime(next);
-    }, 250);
-    return () => clearInterval(id);
-  }, [playing, speed, duration]);
+    const el = mediaRef.current;
+    if (!el) return;
+    const onMeta = () => {
+      if (startAt.current) {
+        el.currentTime = startAt.current;
+        startAt.current = 0;
+      }
+    };
+    el.addEventListener("loadedmetadata", onMeta);
+    return () => el.removeEventListener("loadedmetadata", onMeta);
+  }, [mediaUrl]);
 
   const seek = useCallback((a: Anchor) => {
     if (a.kind === "time") {
-      setTime(a.at);
-      setPlaying(true);
+      const el = mediaRef.current;
+      if (el) {
+        el.currentTime = a.at;
+        void el.play().catch(() => {});
+      }
+      setMedia((m) => ({ ...m, time: a.at }));
     } else {
       setPage(a.page);
       setFlash((f) => f + 1);
@@ -141,98 +257,171 @@ export function Workspace({ ws, initial }: { ws: WorkspaceData; initial?: Anchor
     }
   }, []);
 
-  const nav = useMemo<WorkspaceNav>(() => ({ time, page, seek }), [time, page, seek]);
+  const nav = useMemo<WorkspaceNav>(() => ({ time: media.time, page, seek }), [media.time, page, seek]);
+
+  const reloadMedia = async () => {
+    const url = await freshMediaUrl();
+    patchMedia({ error: false });
+    setMediaUrl(url);
+  };
 
   /* ── outputs ── */
-  const [outputKeys, setOutputKeys] = useState<OutputKey[]>(item.outputs);
-  const [extra, setExtra] = useState<Partial<Record<OutputKey, OutputData>>>({});
-  const [tab, setTab] = useState<TabKey>(item.outputs[0] ?? "transcript");
-  const [generating, setGenerating] = useState<Partial<Record<TabKey, boolean>>>({});
-  const [version, setVersion] = useState<Partial<Record<TabKey, number>>>({});
-  const [editing, setEditing] = useState(false);
+  const showTranscript = isMedia || contentKind === "document" || (contentKind === null && ["pdf", "slides", "image"].includes(item.source));
+  const transcriptLabel = isMedia ? "Transcript" : item.source === "image" ? "Text" : "Pages";
+  const tabs: TabKey[] = [...item.outputs, ...(showTranscript ? (["transcript"] as const) : []), "chat"];
+  const [picked, setPicked] = useState<TabKey | null>(null);
+  const tab: TabKey = picked && tabs.includes(picked) ? picked : tabs[0]!;
   const [copied, setCopied] = useState(false);
-  const [edited, setEdited] = useState<Partial<Record<TabKey, boolean>>>({});
   const [toast, setToast] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [tasksDone, setTasksDone] = useState<Record<string, boolean>>({});
   const bodyRef = useRef<HTMLDivElement>(null);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-
-  const [speakers, setSpeakers] = useState(ws.speakers);
-  const [actionsDone, setActionsDone] = useState<Record<string, boolean>>(() => {
-    const acts = ws.outputs.action_items;
-    return acts?.type === "actions" ? Object.fromEntries(acts.items.map((a) => [a.id, a.done])) : {};
-  });
+  const notify = setToast;
 
   useEffect(() => {
-    const ts = timers.current;
-    return () => ts.forEach(clearTimeout);
-  }, []);
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(id);
+  }, [toast]);
 
-  const later = (fn: () => void, ms: number) => timers.current.push(setTimeout(fn, ms));
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(id);
+  }, [copied]);
 
-  const notify = (msg: string) => {
-    setToast(msg);
-    later(() => setToast((t) => (t === msg ? null : t)), 2400);
+  const tabLabel = (k: TabKey) => (k === "transcript" ? transcriptLabel : k === "chat" ? "Chat" : (SHORT[k] ?? OUTPUT_LABELS[k]));
+  const tabIcon = (k: TabKey): ReactNode => {
+    if (k === "chat") return <MessageSquare className="size-3.5" />;
+    if (k === "transcript") return <ScrollText className="size-3.5" />;
+    const s = detail.outputs[k]?.status;
+    if (s === "running" || ((!s || s === "queued") && working)) return <Loader2 className="spin size-3.5" aria-label="In progress" />;
+    if (s === "failed") return <AlertCircle className="size-3.5 text-red-500" aria-label="Failed" />;
+    return undefined;
   };
 
-  const shared: SharedState = {
+  const retry = async () => {
+    await api.retrySource(item.id);
+    await invalidate(keys.item(item.id), keys.library);
+  };
+
+  const shared = (outputKey: OutputKey): SharedState => ({
     itemId: item.id,
+    outputKey,
     noteType: item.noteType,
     color: nt.color,
-    actionsDone,
-    toggleAction: (id) => setActionsDone((d) => ({ ...d, [id]: !d[id] })),
-    speakers,
-  };
-
-  const tabs: TabKey[] = [...outputKeys, "transcript", "chat"];
-  const addable = {
-    suggested: nt.optional.filter((k) => !outputKeys.includes(k)),
-    more: (Object.keys(OUTPUT_LABELS) as OutputKey[]).filter((k) => !outputKeys.includes(k) && !nt.optional.includes(k)),
-  };
-
-  const changeTab = (k: TabKey) => {
-    setEditing(false);
-    setTab(k);
-  };
-
-  const generate = (k: TabKey, ms = 1500) => {
-    setGenerating((g) => ({ ...g, [k]: true }));
-    later(() => {
-      setGenerating((g) => ({ ...g, [k]: false }));
-      setVersion((v) => ({ ...v, [k]: (v[k] ?? 0) + 1 }));
-    }, ms);
-  };
-
-  const addOutput = (k: OutputKey) => {
-    setOutputKeys((ks) => [...ks, k]);
-    setExtra((e) => ({ ...e, [k]: ws.outputs[k] ?? fallbackOutput(ws, k) }));
-    changeTab(k);
-    generate(k, 2200);
-    notify(`Generating ${OUTPUT_LABELS[k].toLowerCase()}…`);
-  };
+    contentKind,
+    flashcardsDue: item.flashcardsDue,
+    tasksDone,
+    toggleTask: (id, done) => {
+      setTasksDone((d) => ({ ...d, [id]: done }));
+      api
+        .updateTask(id, done)
+        .then(() => invalidate(keys.tasks))
+        .catch((e: unknown) => {
+          setTasksDone((d) => ({ ...d, [id]: !done }));
+          notify(errorMessage(e));
+        });
+    },
+  });
 
   const copy = async () => {
     const text = bodyRef.current?.innerText ?? "";
     try {
       await navigator.clipboard.writeText(text);
+      setCopied(true);
     } catch {
-      /* clipboard can be blocked; still show feedback in the mock */
+      notify("Copy was blocked by the browser");
     }
-    setCopied(true);
-    later(() => setCopied(false), 1500);
   };
 
-  const outputData: OutputData | null = tab === "transcript" || tab === "chat" ? null : (ws.outputs[tab] ?? extra[tab] ?? fallbackOutput(ws, tab));
-  const isOutput = outputData !== null;
-  const caption = ws.viewer.kind === "media" ? ([...ws.transcript].reverse().find((l) => l.anchor.kind === "time" && l.anchor.at <= time + 0.5) ?? null) : null;
-  const chapters = chaptersFrom(ws.outputs.detailed_notes?.type === "notes" ? ws.outputs.detailed_notes.sections : undefined);
+  const rename = async (title: string) => {
+    await api.updateSource(item.id, { title });
+    await invalidate(keys.item(item.id), keys.library, keys.tasks);
+    setRenaming(false);
+    notify("Renamed");
+  };
+
+  const move = async (folderId: string | null, name: string) => {
+    try {
+      await api.updateSource(item.id, { folderId });
+      await invalidate(keys.item(item.id), keys.library);
+      notify(folderId ? `Moved to ${name}` : "Removed from folder");
+    } catch (e) {
+      notify(errorMessage(e));
+    }
+  };
+
+  const remove = async () => {
+    if (!window.confirm(`Delete “${item.title}”? Its notes, flashcards and tasks go too. This can’t be undone.`)) return;
+    try {
+      await api.deleteSource(item.id);
+      router.push("/app");
+      void invalidate(keys.library, keys.tasks, keys.due);
+    } catch (e) {
+      notify(errorMessage(e));
+    }
+  };
+
+  const entry: OutputEntry | undefined = tab === "transcript" || tab === "chat" ? undefined : detail.outputs[tab];
+  const readyData = entry?.status === "ready" ? entry.data : undefined;
+  const caption = isMedia ? ([...segments].reverse().find((l) => l.anchor?.kind === "time" && l.anchor.at <= media.time + 0.5) ?? null) : null;
+  const notes = detail.outputs.detailed_notes?.data;
+  const chapters = chaptersFrom(notes?.type === "notes" ? notes.sections : undefined);
+  const folders = library?.folders ?? [];
+  const folderName = folders.find((f) => f.id === item.folderId)?.name;
 
   let body: ReactNode;
-  if (processing) body = <OutputSkeleton label={tabLabel(tab)} />;
-  else if (generating[tab]) body = <OutputSkeleton label={tabLabel(tab)} />;
-  else if (tab === "transcript")
-    body = <TranscriptView lines={ws.transcript} speakers={speakers} onRename={(id, name) => setSpeakers((s) => ({ ...s, [id]: name }))} />;
-  else if (tab === "chat") body = <ChatView chat={ws.chat} itemTitle={item.title} />;
-  else if (outputData) body = <Renderer data={outputData} state={shared} />;
+  if (tab === "transcript")
+    body = content ? (
+      <TranscriptView segments={segments} kind={content.kind} />
+    ) : (
+      <p className="text-sm text-muted">{working ? "The source is still being read. Its text shows up here when it’s done." : "No text was extracted from this source."}</p>
+    );
+  else if (tab === "chat") body = <ChatView key={item.id} itemId={item.id} itemTitle={item.title} history={detail.chat} contentKind={contentKind} />;
+  else if (!entry || entry.status === "queued" || entry.status === "running") {
+    if (working || entry) body = <OutputSkeleton label={OUTPUT_LABELS[tab]} queued={!entry || entry.status === "queued"} />;
+    else if (item.status.state === "failed") body = <p className="text-sm text-muted">{OUTPUT_LABELS[tab]} wasn’t made because processing stopped first.</p>;
+    else body = <Failed title={`${OUTPUT_LABELS[tab]} wasn’t generated`} error="Processing finished before this output was made." canRetry onRetry={retry} />;
+  } else if (entry.status === "failed")
+    body = <Failed title={`${OUTPUT_LABELS[tab]} failed`} error={entry.error ?? "Something went wrong while writing this."} canRetry={!working} onRetry={retry} />;
+  else if (readyData) body = <Renderer data={readyData} state={shared(tab)} />;
+  else body = <p className="text-sm text-muted">This output came back empty.</p>;
+
+  let viewer: ReactNode;
+  if (isMedia)
+    viewer = mediaUrl ? (
+      <MediaPlayer
+        src={mediaUrl}
+        video={item.source === "video" || !!detail.mediaType?.startsWith("video/")}
+        title={item.title}
+        label={item.sourceLabel}
+        chapters={chapters}
+        caption={caption}
+        mediaRef={mediaRef}
+        state={media}
+        onState={patchMedia}
+        onReload={reloadMedia}
+      />
+    ) : (
+      <ViewerPlaceholder item={item} message="The original recording isn’t available." />
+    );
+  else if (item.source === "pdf")
+    viewer = mediaUrl ? (
+      <PdfViewer src={mediaUrl} page={page} total={totalPages} label={item.sourceLabel} flash={flash} onPage={(n) => seek({ kind: "page", page: n })} />
+    ) : (
+      <ViewerPlaceholder item={item} message="The original PDF isn’t available." />
+    );
+  else if (item.source === "image")
+    viewer = mediaUrl ? <ImageViewer src={mediaUrl} label={item.sourceLabel} /> : <ViewerPlaceholder item={item} message="The original image isn’t available." />;
+  else if (item.source === "slides" && contentKind === "document")
+    viewer = <PageTextViewer segments={segments} page={page} total={totalPages} label={item.sourceLabel} flash={flash} onPage={(n) => seek({ kind: "page", page: n })} href={mediaUrl} />;
+  else
+    viewer = segments.length ? (
+      <SourceText item={item} segments={segments} href={mediaUrl} />
+    ) : (
+      <ViewerPlaceholder item={item} message={working ? "Reading the source…" : "No text was extracted from this source."} />
+    );
 
   return (
     <WorkspaceNavContext.Provider value={nav}>
@@ -243,7 +432,7 @@ export function Workspace({ ws, initial }: { ws: WorkspaceData; initial?: Anchor
             <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" /> Library
           </Link>
           <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
                 <span className="rounded-full px-2 py-0.5 text-ink/80" style={{ background: nt.color }}>
                   {nt.label}
@@ -251,15 +440,78 @@ export function Workspace({ ws, initial }: { ws: WorkspaceData; initial?: Anchor
                 <span className="inline-flex items-center gap-1.5">
                   <SourceIcon kind={item.source} className="size-3.5" /> {item.sourceLabel}
                 </span>
-                <span>· {itemSize(item)}</span>
+                {itemSize(item) && <span>· {itemSize(item)}</span>}
                 <span>· {relativeDate(item.createdAt)}</span>
+                {folderName && (
+                  <span className="inline-flex items-center gap-1">
+                    · <Folder className="size-3" /> {folderName}
+                  </span>
+                )}
               </div>
-              <h1 className="mt-2 text-[28px] leading-[1.08] tracking-[-0.04em] text-balance sm:text-[36px]">{item.title}</h1>
+              {renaming ? (
+                <TitleEditor title={item.title} onSave={rename} onCancel={() => setRenaming(false)} />
+              ) : (
+                <h1 className="mt-2 text-[28px] leading-[1.08] tracking-[-0.04em] text-balance sm:text-[36px]">{item.title}</h1>
+              )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button type="button" onClick={() => notify("Read-only link copied")} className="btn btn-ghost btn-sm">
-                <Share2 className="size-3.5" /> Share
-              </button>
+              <Menu
+                label="Note actions"
+                width="w-60"
+                triggerClassName="btn btn-ghost btn-sm !px-3"
+                trigger={
+                  <>
+                    <MoreHorizontal className="size-4" />
+                    <span className="sr-only sm:not-sr-only">More</span>
+                  </>
+                }
+              >
+                {(close) => (
+                  <div className="max-h-[360px] overflow-y-auto">
+                    <MenuItem
+                      onSelect={() => {
+                        close();
+                        setRenaming(true);
+                      }}
+                    >
+                      <Pencil className="size-3.5" /> Rename
+                    </MenuItem>
+                    <MenuLabel>Move to folder</MenuLabel>
+                    {folders.length === 0 && <p className="px-3 pb-2 text-[12px] text-muted">Create folders from the library.</p>}
+                    {folders.map((f) => (
+                      <MenuItem
+                        key={f.id}
+                        hint={f.id === item.folderId ? <Check className="size-3.5 text-red-500" /> : undefined}
+                        onSelect={() => {
+                          close();
+                          if (f.id !== item.folderId) void move(f.id, f.name);
+                        }}
+                      >
+                        <Folder className="size-3.5" /> {f.name}
+                      </MenuItem>
+                    ))}
+                    {item.folderId && (
+                      <MenuItem
+                        onSelect={() => {
+                          close();
+                          void move(null, "");
+                        }}
+                      >
+                        <Folder className="size-3.5 text-muted" /> Remove from folder
+                      </MenuItem>
+                    )}
+                    <div className="my-1 h-px bg-line" />
+                    <MenuItem
+                      onSelect={() => {
+                        close();
+                        void remove();
+                      }}
+                    >
+                      <Trash2 className="size-3.5 text-red-600" /> <span className="text-red-700">Delete note</span>
+                    </MenuItem>
+                  </div>
+                )}
+              </Menu>
               <Link href="/app/new" className="btn btn-ink btn-sm">
                 <Plus className="size-3.5" /> New note
               </Link>
@@ -270,190 +522,83 @@ export function Workspace({ ws, initial }: { ws: WorkspaceData; initial?: Anchor
         <div className="mt-6 grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-6">
           {/* Source viewer */}
           <div ref={viewerRef} className="rise scroll-mt-20 lg:sticky lg:top-6 lg:self-start" style={{ animationDelay: "80ms" }}>
-            {ws.viewer.kind === "media" ? (
-              <MediaPlayer
-                duration={ws.viewer.durationSec}
-                time={time}
-                playing={playing}
-                speed={speed}
-                video={ws.viewer.video}
-                label={ws.viewer.label}
-                title={item.title}
-                chapters={chapters}
-                caption={caption}
-                onToggle={() => setPlaying((p) => !p)}
-                onSeek={(s) => setTime(s)}
-                onSpeed={setSpeed}
-              />
-            ) : (
-              <PdfViewer pages={ws.viewer.pages} total={item.pages ?? ws.viewer.pages.length} page={page} label={ws.viewer.label} flash={flash} onPage={(n) => seek({ kind: "page", page: n })} />
-            )}
+            {viewer}
           </div>
 
           {/* Outputs */}
           <section className="rise min-w-0 rounded-[28px] border border-line bg-card shadow-[0_30px_60px_-45px_rgba(60,20,10,0.45)]" style={{ animationDelay: "140ms" }} aria-label="Outputs">
             <div className="flex items-center gap-2 border-b border-line p-3 sm:p-4">
               <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
-                <SlidingTabs
-                  size="sm"
-                  value={tab}
-                  onChange={changeTab}
-                  ariaLabel="Outputs"
-                  items={tabs.map((k) => ({
-                    value: k,
-                    label: tabLabel(k),
-                    icon: k === "chat" ? <MessageSquare className="size-3.5" /> : k === "transcript" ? <ScrollText className="size-3.5" /> : undefined,
-                  }))}
-                />
+                <SlidingTabs size="sm" value={tab} onChange={setPicked} ariaLabel="Outputs" items={tabs.map((k) => ({ value: k, label: tabLabel(k), icon: tabIcon(k) }))} />
               </div>
-              <Menu
-                label="Add output"
-                width="w-64"
-                triggerClassName="btn btn-ghost btn-sm shrink-0 !px-3"
-                trigger={
-                  <>
-                    <Plus className="size-3.5" />
-                    <span className="hidden sm:inline">Add output</span>
-                  </>
-                }
-              >
-                {(close) => (
-                  <div className="max-h-[360px] overflow-y-auto">
-                    {addable.suggested.length > 0 && <MenuLabel>Suggested for {nt.label.toLowerCase()}</MenuLabel>}
-                    {addable.suggested.map((k) => (
-                      <MenuItem
-                        key={k}
-                        onSelect={() => {
-                          close();
-                          addOutput(k);
-                        }}
-                      >
-                        <Sparkles className="size-3.5 text-red-500" /> {OUTPUT_LABELS[k]}
-                      </MenuItem>
-                    ))}
-                    <MenuLabel>More outputs</MenuLabel>
-                    {addable.more.map((k) => (
-                      <MenuItem
-                        key={k}
-                        onSelect={() => {
-                          close();
-                          addOutput(k);
-                        }}
-                      >
-                        <Plus className="size-3.5 text-muted" /> {OUTPUT_LABELS[k]}
-                      </MenuItem>
-                    ))}
-                  </div>
-                )}
-              </Menu>
             </div>
 
             {/* Toolbar */}
-            {isOutput && !processing && (
+            {readyData && (
               <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2 sm:px-5">
                 <p className="flex min-w-0 items-center gap-2 truncate font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
                   <span className="truncate">{OUTPUT_LABELS[tab as OutputKey]}</span>
-                  <span className="hidden sm:inline">· {version[tab] ? "just now" : relativeDate(item.createdAt)}</span>
-                  {edited[tab] && <span className="rounded-full bg-panel px-1.5 py-px text-ink-soft">edited</span>}
+                  <span className="hidden sm:inline">· {relativeDate(item.createdAt)}</span>
                 </p>
                 <div className="flex items-center gap-0.5">
-                  {editing ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditing(false);
-                          setVersion((v) => ({ ...v, [tab]: (v[tab] ?? 0) + 1 }));
-                        }}
-                        className="btn btn-ghost btn-sm !min-h-[30px] !py-1"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditing(false);
-                          setEdited((e) => ({ ...e, [tab]: true }));
-                          notify("Edits saved");
-                        }}
-                        className="btn btn-red btn-sm !min-h-[30px] !py-1"
-                      >
-                        <Check className="size-3.5" /> Save
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button type="button" onClick={() => generate(tab)} className={iconBtn} aria-label="Regenerate" title="Regenerate">
-                        <RefreshCw className={`size-3.5 ${generating[tab] ? "spin" : ""}`} />
-                      </button>
-                      <button type="button" onClick={() => setEditing(true)} className={iconBtn} aria-label="Edit" title="Edit">
-                        <Pencil className="size-3.5" />
-                      </button>
-                      <button type="button" onClick={copy} className={iconBtn} aria-label={copied ? "Copied" : "Copy"} title="Copy">
-                        {copied ? <Check className="tick-pop size-3.5 text-green-700" /> : <Copy className="size-3.5" />}
-                      </button>
-                      <Menu
-                        label="Export"
-                        triggerClassName="ml-1 inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
-                        trigger={
-                          <>
-                            <Download className="size-3.5" /> Export <ChevronDown className="size-3" />
-                          </>
-                        }
-                      >
-                        {(close) => {
-                          const pick = (what: string) => {
-                            close();
-                            notify(`${what} ready`);
-                          };
-                          return (
-                            <>
-                              <MenuItem onSelect={() => pick("Markdown")} hint=".md">
-                                <FileText className="size-3.5" /> Markdown
-                              </MenuItem>
-                              <MenuItem onSelect={() => pick("PDF")} hint=".pdf">
-                                <FileDown className="size-3.5" /> PDF
-                              </MenuItem>
-                              <MenuItem onSelect={() => pick("DOCX")} hint=".docx">
-                                <FileDown className="size-3.5" /> Word document
-                              </MenuItem>
-                              {outputData?.type === "flashcards" && (
-                                <MenuItem onSelect={() => pick("Anki CSV")} hint=".csv">
-                                  <FileDown className="size-3.5" /> Anki deck
-                                </MenuItem>
-                              )}
-                              {item.noteType === "meeting" && (
-                                <MenuItem onSelect={() => pick("Email draft")}>
-                                  <Mail className="size-3.5" /> Copy as email
-                                </MenuItem>
-                              )}
-                              <MenuItem onSelect={() => pick("Share link")}>
-                                <Link2 className="size-3.5" /> Share read-only link
-                              </MenuItem>
-                            </>
-                          );
-                        }}
-                      </Menu>
-                    </>
-                  )}
+                  <button type="button" onClick={copy} className={iconBtn} aria-label={copied ? "Copied" : "Copy"} title="Copy">
+                    {copied ? <Check className="tick-pop size-3.5 text-green-700" /> : <Copy className="size-3.5" />}
+                  </button>
+                  <Menu
+                    label="Export"
+                    triggerClassName="ml-1 inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
+                    trigger={
+                      <>
+                        <Download className="size-3.5" /> Export <ChevronDown className="size-3" />
+                      </>
+                    }
+                  >
+                    {(close) => {
+                      const k = tab as OutputKey;
+                      const name = `${fileSafe(item.title)} - ${OUTPUT_LABELS[k]}`;
+                      return (
+                        <>
+                          <MenuItem
+                            hint=".md"
+                            onSelect={() => {
+                              close();
+                              download(`${name}.md`, toMarkdown(item.title, OUTPUT_LABELS[k], readyData), "text/markdown;charset=utf-8");
+                            }}
+                          >
+                            <FileText className="size-3.5" /> Markdown
+                          </MenuItem>
+                          {readyData.type === "flashcards" && (
+                            <MenuItem
+                              hint=".csv"
+                              onSelect={() => {
+                                close();
+                                download(`${name}.csv`, flashcardsCsv(readyData), "text/csv;charset=utf-8");
+                              }}
+                            >
+                              <FileDown className="size-3.5" /> Anki deck
+                            </MenuItem>
+                          )}
+                        </>
+                      );
+                    }}
+                  </Menu>
                 </div>
               </div>
             )}
 
-            {processing && item.status.state === "processing" && (
+            {(item.status.state === "processing" || item.status.state === "queued") && (
               <div className="border-b border-line bg-red-50/50 px-5 py-4">
                 <ProcessingBar status={item.status} />
                 <p className="mt-2 text-[12px] text-ink-soft">Outputs appear here as soon as each one is ready. You can leave this page.</p>
               </div>
             )}
+            {item.status.state === "failed" && tab !== "chat" && tab !== "transcript" && entry?.status !== "failed" && (
+              <div className="border-b border-line p-4 sm:px-5">
+                <Failed title="Processing failed" error={item.status.error} canRetry onRetry={retry} />
+              </div>
+            )}
 
-            <div
-              key={`${tab}-${version[tab] ?? 0}`}
-              ref={bodyRef}
-              contentEditable={editing && isOutput}
-              suppressContentEditableWarning
-              className={`rise p-4 outline-none sm:p-6 ${editing ? "m-2 rounded-2xl bg-paper/60 shadow-[inset_0_0_0_1.5px_var(--red-300)]" : ""}`}
-            >
+            <div key={tab} ref={bodyRef} className="rise p-4 sm:p-6">
               {body}
             </div>
           </section>

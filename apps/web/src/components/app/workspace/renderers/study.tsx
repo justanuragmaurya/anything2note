@@ -1,33 +1,33 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { ArrowRight, Check, RotateCcw, X } from "lucide-react";
-import type { Flashcard, OutputData, QuizQuestion } from "@/lib/mock/app-data";
-import { FlipCard, RateButtons, type Rating } from "../../flashcard";
+import { ArrowLeft, ArrowRight, Check, Layers, Loader2, RotateCcw, X } from "lucide-react";
+import type { Flashcard, OutputData, QuizAttemptResponse, QuizQuestion } from "@a2n/shared";
+import { api, errorMessage } from "@/lib/api";
+import { keys, useInvalidate } from "@/lib/queries";
+import { FlipCard } from "../../flashcard";
 import { AnchorChip, ProgressBar } from "../../ui";
-import type { SharedState } from "./shared";
+import { fits, type SharedState } from "./shared";
 
+/** Flip through this item's cards. Spaced-repetition ratings happen in Review. */
 function Flashcards({ cards, state }: { cards: Flashcard[]; state: SharedState }) {
   const [i, setI] = useState(0);
   const [flipped, setFlipped] = useState(false);
-  const [log, setLog] = useState<Rating[]>([]);
-  const card = cards[i % cards.length]!;
+  const card = cards[i];
+  if (!card) return <p className="text-sm text-muted">No flashcards were made from this source.</p>;
 
-  const rate = (r: Rating) => {
-    setLog((l) => [...l, r]);
+  const go = (n: number) => {
     setFlipped(false);
-    setTimeout(() => setI((n) => n + 1), 200);
+    setI((n + cards.length) % cards.length);
   };
-
-  const pass = Math.floor(i / cards.length) + 1;
 
   return (
     <div className="flex flex-col items-center">
       <div className="mb-5 flex w-full max-w-[440px] items-center gap-3">
-        <ProgressBar value={((i % cards.length) / cards.length) * 100} className="flex-1" />
+        <ProgressBar value={((i + 1) / cards.length) * 100} className="flex-1" />
         <span className="font-mono text-[10px] text-muted tabular-nums">
-          {(i % cards.length) + 1}/{cards.length}
-          {pass > 1 && ` · pass ${pass}`}
+          {i + 1}/{cards.length}
         </span>
       </div>
       <FlipCard
@@ -41,43 +41,81 @@ function Flashcards({ cards, state }: { cards: Flashcard[]; state: SharedState }
           <>
             <span>{card.topic}</span>
             <span>
-              Card {(i % cards.length) + 1} / {cards.length}
+              Card {i + 1} / {cards.length}
             </span>
           </>
         }
-        backFooter={<AnchorChip anchor={card.anchor} itemId={state.itemId} />}
+        backFooter={fits(state, card.anchor) ? <AnchorChip anchor={card.anchor} itemId={state.itemId} /> : undefined}
       />
-      <div className={`mt-5 flex w-full justify-center transition-all duration-300 ${flipped ? "opacity-100" : "pointer-events-none translate-y-1 opacity-40"}`}>
-        <RateButtons onRate={rate} disabled={!flipped} />
+      <div className="mt-5 flex w-full max-w-[440px] items-center justify-between gap-2">
+        <button type="button" onClick={() => go(i - 1)} className="btn btn-ghost btn-sm" aria-label="Previous card">
+          <ArrowLeft className="size-3.5" /> Prev
+        </button>
+        <button type="button" onClick={() => go(i + 1)} className="btn btn-ink btn-sm" aria-label="Next card">
+          Next <ArrowRight className="btn-arrow-right size-3.5" />
+        </button>
       </div>
-      <p className="mt-4 text-center font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
-        {log.length ? `${log.length} rated this session · ${log.filter((r) => r === "good" || r === "easy").length} recalled` : "Flip, then rate how well you remembered"}
+      <p className="mt-4 flex items-center gap-2 text-center font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
+        {state.flashcardsDue > 0 ? (
+          <Link href="/app/review" className="inline-flex items-center gap-1.5 text-red-600 hover:text-red-700">
+            <Layers className="size-3" /> {state.flashcardsDue} due for spaced review
+          </Link>
+        ) : (
+          "These cards are in your spaced review deck"
+        )}
       </p>
     </div>
   );
 }
 
 function Quiz({ questions, state }: { questions: QuizQuestion[]; state: SharedState }) {
+  const invalidate = useInvalidate();
   const [i, setI] = useState(0);
   const [answers, setAnswers] = useState<(number | null)[]>(() => questions.map(() => null));
+  const [result, setResult] = useState<{ state: "saving" } | { state: "saved"; r: QuizAttemptResponse } | { state: "error"; message: string } | null>(null);
   const q = questions[i];
   const score = answers.filter((a, n) => a === questions[n]!.correct).length;
 
-  if (!q)
+  if (questions.length === 0) return <p className="text-sm text-muted">No questions were made from this source.</p>;
+
+  const submit = async (final: (number | null)[]) => {
+    setResult({ state: "saving" });
+    try {
+      const r = await api.quizAttempt({ itemId: state.itemId, output: state.outputKey, answers: final.map((a) => a ?? -1) });
+      setResult({ state: "saved", r });
+      void invalidate(keys.stats);
+    } catch (e) {
+      setResult({ state: "error", message: errorMessage(e) });
+    }
+  };
+
+  if (!q) {
+    const shown = result?.state === "saved" ? result.r : { score, total: questions.length };
     return (
       <div className="rise flex flex-col items-center rounded-[22px] border border-line bg-paper p-8 text-center">
         <p className="eyebrow">Quiz complete</p>
         <p className="mt-3 text-[56px] leading-none tracking-[-0.05em]">
-          {score}
-          <span className="serif-accent text-[36px] text-muted">/{questions.length}</span>
+          {shown.score}
+          <span className="serif-accent text-[36px] text-muted">/{shown.total}</span>
         </p>
         <p className="mt-2 text-sm text-ink-soft">
-          {score === questions.length ? (
+          {result?.state === "saving" ? (
+            <span className="inline-flex items-center gap-1.5">
+              <Loader2 className="spin size-3.5" /> Saving your attempt…
+            </span>
+          ) : result?.state === "error" ? (
+            <span className="text-red-700">
+              Couldn’t save this attempt: {result.message}{" "}
+              <button type="button" onClick={() => submit(answers)} className="underline underline-offset-4">
+                Try again
+              </button>
+            </span>
+          ) : shown.score === shown.total ? (
             <>
               A <span className="serif-accent text-[17px] text-red-500">clean</span> sweep.
             </>
           ) : (
-            "Missed ones are added to your weak topics."
+            "Saved. Topics you keep missing show up in Stats."
           )}
         </p>
         <ul className="mt-5 flex flex-wrap justify-center gap-1.5">
@@ -93,8 +131,10 @@ function Quiz({ questions, state }: { questions: QuizQuestion[]; state: SharedSt
         </ul>
         <button
           type="button"
+          disabled={result?.state === "saving"}
           onClick={() => {
             setAnswers(questions.map(() => null));
+            setResult(null);
             setI(0);
           }}
           className="btn btn-ink btn-sm mt-6"
@@ -103,9 +143,11 @@ function Quiz({ questions, state }: { questions: QuizQuestion[]; state: SharedSt
         </button>
       </div>
     );
+  }
 
   const answer = answers[i] ?? null;
   const reveal = answer !== null;
+  const last = i + 1 === questions.length;
 
   return (
     <div key={q.id} className="rise">
@@ -123,7 +165,7 @@ function Quiz({ questions, state }: { questions: QuizQuestion[]; state: SharedSt
           const correct = n === q.correct;
           return (
             <button
-              key={o}
+              key={`${n}-${o}`}
               type="button"
               role="radio"
               aria-checked={chosen}
@@ -154,9 +196,16 @@ function Quiz({ questions, state }: { questions: QuizQuestion[]; state: SharedSt
           <p className={`font-medium ${answer === q.correct ? "text-green-800" : "text-red-700"}`}>{answer === q.correct ? "Correct." : "Not quite."}</p>
           <p className="mt-1 text-ink-soft">{q.explanation}</p>
           <div className="mt-3 flex items-center justify-between gap-3">
-            <AnchorChip anchor={q.anchor} itemId={state.itemId} />
-            <button type="button" onClick={() => setI((n) => n + 1)} className="btn btn-ink btn-sm">
-              {i + 1 === questions.length ? "See score" : "Next question"}
+            {fits(state, q.anchor) ? <AnchorChip anchor={q.anchor} itemId={state.itemId} /> : <span />}
+            <button
+              type="button"
+              onClick={() => {
+                setI((n) => n + 1);
+                if (last) void submit(answers);
+              }}
+              className="btn btn-ink btn-sm"
+            >
+              {last ? "See score" : "Next question"}
               <ArrowRight className="btn-arrow-right size-3.5" />
             </button>
           </div>

@@ -1,22 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ArrowLeft, ArrowRight, ArrowUpRight, Check, Loader2, Sparkles, WandSparkles } from "lucide-react";
+import { useState } from "react";
+import { AlertCircle, ArrowLeft, ArrowRight, Check, Loader2, RotateCcw, Sparkles, WandSparkles, X } from "lucide-react";
+import { TRIAL, type CreateSourceRequest, type ItemDetail, type OutputData, type OutputEntry, type SourceKind } from "@a2n/shared";
 import { NoteTypeShape } from "@/components/site/note-type-shape";
-import type { SourceKind } from "@/lib/mock/app-data";
-import { NOTE_TYPES, noteType, OUTPUT_LABELS, type NoteTypeKey, type OutputKey } from "@/lib/mock/note-types";
+import { api, errorMessage } from "@/lib/api";
+import { MEDIA_KINDS } from "@/lib/format";
+import { NOTE_TYPES, noteType, OUTPUT_LABELS, type NoteTypeKey, type OutputKey } from "@/lib/note-types";
+import { apiLanguage, LANGS, readPrefs } from "@/lib/prefs";
+import { keys, useInvalidate, useItem, useMe } from "@/lib/queries";
+import { statusLine } from "../billing/billing-view";
 import { SourceIcon, Toggle, inputCls } from "../ui";
 import { SourceStep, type PickedSource } from "./source-step";
 
 type TypeChoice = NoteTypeKey | "auto";
 
+/** A starting point based on the kind of source; the user picks, or leaves it to the API. */
 const SUGGEST: Record<SourceKind, NoteTypeKey> = {
   youtube: "lecture",
-  recording: "meeting",
-  audio: "meeting",
+  recording: "lecture",
+  audio: "lecture",
   video: "general",
   pdf: "reading",
+  docx: "reading",
   slides: "lecture",
   image: "general",
   text: "general",
@@ -24,8 +31,6 @@ const SUGGEST: Record<SourceKind, NoteTypeKey> = {
 };
 
 const STEPS = ["Source", "Note type", "Outputs", "Generate"] as const;
-
-const LANGS = ["Same as source", "English", "Hindi", "Spanish", "French", "German", "Portuguese", "Japanese"];
 
 /* ─────────────────────────── Stepper ─────────────────────────── */
 
@@ -74,7 +79,7 @@ function Stepper({ step, onJump, locked }: { step: number; onJump: (n: number) =
 
 /* ─────────────────────────── Step 2 ─────────────────────────── */
 
-function TypeStep({ value, suggested, onChange }: { value: TypeChoice; suggested: NoteTypeKey; onChange: (v: TypeChoice) => void }) {
+function TypeStep({ value, suggested, onChange }: { value: TypeChoice; suggested: NoteTypeKey | null; onChange: (v: TypeChoice) => void }) {
   const cards: { key: TypeChoice }[] = [...NOTE_TYPES.map((n) => ({ key: n.key as TypeChoice })), { key: "auto" }];
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" role="radiogroup" aria-label="Note type">
@@ -100,7 +105,7 @@ function TypeStep({ value, suggested, onChange }: { value: TypeChoice; suggested
                 <WandSparkles className="relative size-5 text-red-400 transition-transform duration-500 group-hover:rotate-12" />
                 <div className="relative">
                   <p className="serif-accent text-[24px] leading-none">Auto-detect</p>
-                  <p className="mt-1.5 text-[12px] text-night-muted">We read the first minutes and pick for you.</p>
+                  <p className="mt-1.5 text-[12px] text-night-muted">We read the source first, then pick the type and its outputs.</p>
                 </div>
               </button>
               {badge}
@@ -127,7 +132,7 @@ function TypeStep({ value, suggested, onChange }: { value: TypeChoice; suggested
               <p className="mt-auto pt-3 font-mono text-[9px] tracking-[0.12em] text-ink/60 uppercase">{nt.defaults.length} outputs</p>
             </button>
             {suggested === key && (
-              <span className="absolute top-3 right-3 rounded-full bg-cream/85 px-2 py-0.5 font-mono text-[9px] tracking-[0.1em] text-red-700 uppercase">Suggested</span>
+              <span className="absolute top-3 right-3 rounded-full bg-cream/85 px-2 py-0.5 font-mono text-[9px] tracking-[0.1em] text-red-700 uppercase">Common pick</span>
             )}
             {badge}
           </div>
@@ -160,7 +165,6 @@ function OutputRow({ k, extra, on, onToggle }: { k: OutputKey; extra: boolean; o
 
 function OutputsStep({
   typeKey,
-  isAuto,
   selected,
   onToggle,
   lang,
@@ -168,8 +172,7 @@ function OutputsStep({
   instructions,
   onInstructions,
 }: {
-  typeKey: NoteTypeKey;
-  isAuto: boolean;
+  typeKey: TypeChoice;
   selected: OutputKey[];
   onToggle: (k: OutputKey) => void;
   lang: string;
@@ -177,31 +180,36 @@ function OutputsStep({
   instructions: string;
   onInstructions: (s: string) => void;
 }) {
-  const nt = noteType(typeKey);
+  const nt = typeKey === "auto" ? null : noteType(typeKey);
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[1.2fr_1fr]">
       <div>
-        {isAuto && (
-          <p className="mb-4 flex items-start gap-2 rounded-2xl bg-night px-4 py-3 text-[13px] text-night-text">
+        {nt ? (
+          <>
+            <p className="eyebrow mb-2.5 text-[10px]">Defaults for {nt.label.toLowerCase()}</p>
+            <ul className="space-y-2">
+              {nt.defaults.map((k) => (
+                <OutputRow key={k} k={k} extra={false} on={selected.includes(k)} onToggle={onToggle} />
+              ))}
+            </ul>
+            <p className="eyebrow mt-6 mb-2.5 text-[10px]">Optional</p>
+            <ul className="space-y-2">
+              {nt.optional.map((k) => (
+                <OutputRow key={k} k={k} extra on={selected.includes(k)} onToggle={onToggle} />
+              ))}
+            </ul>
+          </>
+        ) : (
+          <div className="flex items-start gap-3 rounded-2xl bg-night px-4 py-4 text-[13px] text-night-text">
             <Sparkles className="mt-0.5 size-4 shrink-0 text-red-400" />
-            <span>
-              Looks like a <span className="serif-accent text-[16px] text-red-300">{nt.label.toLowerCase()}</span>. We’ll confirm after reading the first few minutes.
-            </span>
-          </p>
+            <div>
+              <p>
+                The note type is <span className="serif-accent text-[16px] text-red-300">detected after reading</span> the source.
+              </p>
+              <p className="mt-1 text-night-muted">We’ll make that type’s default outputs. Want to choose them yourself? Go back and pick a type.</p>
+            </div>
+          </div>
         )}
-        <p className="eyebrow mb-2.5 text-[10px]">Defaults for {nt.label.toLowerCase()}</p>
-        <ul className="space-y-2">
-          {nt.defaults.map((k) => (
-            <OutputRow key={k} k={k} extra={false} on={selected.includes(k)} onToggle={onToggle} />
-          ))}
-        </ul>
-        <p className="eyebrow mt-6 mb-2.5 text-[10px]">Optional</p>
-        <ul className="space-y-2">
-          {nt.optional.map((k) => (
-            <OutputRow key={k} k={k} extra on={selected.includes(k)} onToggle={onToggle} />
-          ))}
-        </ul>
-        <p className="mt-3 text-[12px] text-muted">You can add or regenerate any output later from the workspace.</p>
       </div>
 
       <div className="space-y-6">
@@ -251,82 +259,167 @@ function OutputsStep({
 
 /* ─────────────────────────── Step 4 ─────────────────────────── */
 
-const FIRST_OUTPUT: Record<NoteTypeKey, { label: string; text: string }> = {
-  meeting: {
-    label: "TL;DR summary",
-    text: "Launch slips a week to 14 Oct, the beta grows to 500 users, and an India-only pricing test runs for two weeks. One backend role opens; the design contractor search pauses.",
-  },
-  lecture: {
-    label: "Detailed notes",
-    text: "1. Limits, revisited. Differentiability needs the difference-quotient limit to exist; continuity alone isn’t enough. 2. The chain rule: outer derivative, keep the inside, times the inner derivative.",
-  },
-  reading: {
-    label: "Summary",
-    text: "The Transformer replaces recurrence with attention alone. It trains faster, parallelises better, and set a new state of the art on WMT 2014 translation.",
-  },
-  interview: { label: "Summary", text: "Meera studies from recorded lectures and wants flashcards that link back to the exact moment. Anki export is a must-have." },
-  podcast: { label: "Summary", text: "Sleep is the foundation of memory consolidation. Morning light, consistent wake times and a cool room matter more than supplements." },
-  tutorial: { label: "Step-by-step guide", text: "1. Install Docker Desktop. 2. Create docker-compose.yml with web and db services. 3. Run docker compose up -d and check the logs." },
-  general: { label: "Summary", text: "The whiteboard sketches a sync engine: a local SQLite store, an op log, and a server that merges changes with CRDTs." },
+const READ_SUB: Partial<Record<SourceKind, string>> = {
+  pdf: "Reading the PDF’s text layer",
+  docx: "Reading the document",
+  slides: "Reading the slides",
+  image: "Reading the text in the image",
+  text: "Splitting the text into passages",
+  web: "Fetching the page and its main text",
 };
 
-const DEST: Partial<Record<NoteTypeKey, string>> = { meeting: "demo-meeting", lecture: "demo-lecture", reading: "demo-reading" };
+const clean = (s: string) => s.replace(/\*\*(.+?)\*\*/g, "$1").replace(/\s+/g, " ").trim();
+const clip = (s: string, n = 420) => (s.length > n ? `${s.slice(0, n).replace(/\s+\S*$/, "")}…` : s);
 
-function ProgressStep({ source, typeKey, outputs }: { source: PickedSource; typeKey: NoteTypeKey; outputs: OutputKey[] }) {
-  // Mirrors plan §5.2: captioned YouTube skips audio + Whisper; speaker labels only for meetings/interviews.
-  const captioned = source.kind === "youtube" && source.detail.includes("captions");
-  const media = ["youtube", "audio", "video", "recording"].includes(source.kind);
-  const diarize = typeKey === "meeting" || typeKey === "interview";
-  const [extract, read] = captioned
-    ? [
-        { label: "Fetching captions", sub: "Manual captions found" },
-        { label: "Aligning timestamps", sub: "Merging caption fragments" },
-      ]
-    : media
-      ? [
-          { label: "Extracting audio", sub: "Normalising to 16 kHz mono" },
-          { label: "Transcribing", sub: diarize ? "Whisper · speaker labels" : "Whisper · timestamps" },
-        ]
-      : source.kind === "text"
-        ? [
-            { label: "Reading text", sub: "Cleaning and splitting sections" },
-            { label: "Finding structure", sub: "Headings and key passages" },
-          ]
-        : source.kind === "web"
-          ? [
-              { label: "Fetching page", sub: "Readability extraction" },
-              { label: "Finding structure", sub: "Headings and key passages" },
-            ]
-          : [
-              { label: "Extracting content", sub: "Reading the text layer" },
-              { label: "Reading pages", sub: "OCR on scanned pages" },
-            ];
-  const steps = [extract, read, { label: "Generating notes", sub: `${outputs.length} outputs · ${noteType(typeKey).label}` }];
-  const first = FIRST_OUTPUT[typeKey];
-  const [elapsed, setElapsed] = useState(0);
+/** A short plain-text taste of an output, for the progress screen. */
+function preview(d: OutputData): string {
+  switch (d.type) {
+    case "summary":
+      return clean(d.tldr);
+    case "notes": {
+      const s = d.sections[0];
+      return s ? clean(`${s.heading}. ${s.body.join(" ")}`) : "";
+    }
+    case "generic":
+      return clean(d.intro ?? d.blocks.slice(0, 3).map((b) => (b.title ? `${b.title}: ${b.text}` : b.text)).join(" · "));
+    case "flashcards":
+      return d.cards[0] ? `${d.cards.length} cards. First up: ${clean(d.cards[0].front)}` : "No cards.";
+    case "quiz":
+      return d.questions[0] ? `${d.questions.length} questions. First up: ${clean(d.questions[0].q)}` : "No questions.";
+    case "tasks":
+      return d.items.length ? d.items.map((t) => clean(t.task)).join(" · ") : "No tasks were mentioned.";
+  }
+}
 
-  // Fake the pipeline off one clock: extract → transcribe → stream first output → the rest.
-  const T1 = 1600;
-  const T2 = 3600;
-  const streamEnd = T2 + Math.ceil(first.text.length / 3) * 28;
-  const endAt = streamEnd + outputs.length * 380;
+function OutputChip({ k, entry }: { k: OutputKey; entry: OutputEntry | undefined }) {
+  const status = entry?.status ?? "queued";
+  const cls =
+    status === "ready"
+      ? "border-red-200 bg-red-50 text-red-800"
+      : status === "failed"
+        ? "border-red-300 bg-card text-red-700"
+        : status === "running"
+          ? "border-line-strong bg-card text-ink"
+          : "border-line text-muted";
+  return (
+    <li title={status === "failed" ? entry?.error : undefined} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-all duration-500 ${cls}`}>
+      {status === "ready" ? (
+        <Check className="tick-pop size-3" strokeWidth={3} />
+      ) : status === "failed" ? (
+        <X className="size-3" strokeWidth={3} />
+      ) : status === "running" ? (
+        <Loader2 className="spin size-3" />
+      ) : (
+        <span className="size-1.5 rounded-full bg-line-strong" />
+      )}
+      {OUTPUT_LABELS[k]}
+      <span className="sr-only">· {status}</span>
+    </li>
+  );
+}
 
-  useEffect(() => {
-    const start = performance.now();
-    const id = setInterval(() => {
-      const e = performance.now() - start;
-      setElapsed(e);
-      if (e >= endAt) clearInterval(id);
-    }, 28);
-    return () => clearInterval(id);
-  }, [endAt]);
+type Created = { state: "posting" } | { state: "error"; message: string } | { state: "created"; id: string };
 
-  const streamed = elapsed < T2 ? 0 : Math.min(first.text.length, Math.floor((elapsed - T2) / 28) * 3);
-  const streamDone = elapsed >= streamEnd;
-  const readyCount = streamDone ? Math.min(outputs.length, 1 + Math.floor((elapsed - streamEnd) / 380)) : 0;
-  const phase = elapsed >= endAt ? 3 : elapsed >= T2 ? 2 : elapsed >= T1 ? 1 : 0;
+function ProgressStep({ source, auto, created, onBack }: { source: PickedSource; auto: boolean; created: Created; onBack: () => void }) {
+  if (created.state === "posting")
+    return (
+      <div className="flex items-center gap-3 rounded-2xl border border-line bg-card p-4 text-sm text-ink-soft" aria-busy="true">
+        <Loader2 className="spin size-4 text-red-500" /> Sending {source.label} to be read…
+      </div>
+    );
+  if (created.state === "error")
+    return (
+      <div className="rounded-[22px] border border-red-200 bg-red-50 p-5" role="alert">
+        <p className="flex items-start gap-2 text-sm text-red-800">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" /> {created.message}
+        </p>
+        <button type="button" onClick={onBack} className="btn btn-ghost btn-sm mt-4">
+          <ArrowLeft className="size-3.5" /> Change the source
+        </button>
+      </div>
+    );
+  return <Tracking id={created.id} source={source} auto={auto} />;
+}
 
-  const overall = phase >= 3 ? 100 : phase === 2 ? 66 + (readyCount / Math.max(1, outputs.length)) * 34 : phase === 1 ? 40 : 12;
+function Tracking({ id, source, auto }: { id: string; source: PickedSource; auto: boolean }) {
+  const { data, error, refetch } = useItem(id);
+  const invalidate = useInvalidate();
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+
+  if (!data)
+    return error ? (
+      <div className="rounded-[22px] border border-red-200 bg-red-50 p-5 text-sm text-red-800" role="alert">
+        {errorMessage(error)}{" "}
+        <button type="button" onClick={() => refetch()} className="underline underline-offset-4">
+          Try again
+        </button>
+      </div>
+    ) : (
+      <div className="flex items-center gap-3 rounded-2xl border border-line bg-card p-4 text-sm text-ink-soft" aria-busy="true">
+        <Loader2 className="spin size-4 text-red-500" /> Queued…
+      </div>
+    );
+
+  return <TrackingView detail={data} source={source} auto={auto} retrying={retrying} retryError={retryError} onRetry={async () => {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      await api.retrySource(id);
+      await invalidate(keys.item(id), keys.library);
+    } catch (e) {
+      setRetryError(errorMessage(e));
+    } finally {
+      setRetrying(false);
+    }
+  }} />;
+}
+
+function TrackingView({
+  detail,
+  source,
+  auto,
+  retrying,
+  retryError,
+  onRetry,
+}: {
+  detail: ItemDetail;
+  source: PickedSource;
+  auto: boolean;
+  retrying: boolean;
+  retryError: string | null;
+  onRetry: () => void;
+}) {
+  const { item, outputs } = detail;
+  const st = item.status;
+  const media = MEDIA_KINDS.includes(item.source);
+  // 0 = queued, 1 = reading, 2 = generating, 3 = done
+  const phase = st.state === "queued" ? 0 : st.state === "processing" ? (st.step === "generating" ? 2 : 1) : st.state === "ready" ? 3 : -1;
+  const failed = st.state === "failed";
+  const typeKnown = !auto || phase >= 2 || st.state === "ready";
+  const keysList = item.outputs;
+  const readyCount = keysList.filter((k) => outputs[k]?.status === "ready").length;
+  const failedCount = keysList.filter((k) => outputs[k]?.status === "failed").length;
+  const overall = st.state === "processing" ? st.progress : st.state === "ready" ? 100 : 0;
+
+  const primaryKey = typeKnown ? noteType(item.noteType).primary : null;
+  const shownKey = primaryKey && keysList.includes(primaryKey) ? primaryKey : (keysList.find((k) => outputs[k]?.status === "ready") ?? keysList[0] ?? null);
+  const shown = shownKey ? outputs[shownKey] : undefined;
+
+  const steps = [
+    {
+      label: media ? "Transcribing" : "Reading the source",
+      sub: phase === 0 ? "Queued · starts in a moment" : media ? "Speech to text, with timestamps" : (READ_SUB[item.source] ?? "Reading the source"),
+    },
+    {
+      label: "Generating notes",
+      sub: keysList.length
+        ? `${readyCount} of ${keysList.length} outputs ready${failedCount ? ` · ${failedCount} failed` : ""}`
+        : auto
+          ? "Picking the note type first"
+          : "Waiting for the source",
+    },
+  ];
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[1fr_1.3fr]">
@@ -336,15 +429,19 @@ function ProgressStep({ source, typeKey, outputs }: { source: PickedSource; type
             <SourceIcon kind={source.kind} />
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-medium">{source.label}</p>
-            <p className="font-mono text-[10px] tracking-[0.08em] text-muted uppercase">{source.detail}</p>
+            <p className="truncate text-sm font-medium">{item.title}</p>
+            <p className="font-mono text-[10px] tracking-[0.08em] text-muted uppercase">
+              {source.detail} ·{" "}
+              {typeKnown ? noteType(item.noteType).label : <span className="normal-case tracking-normal">note type detected after reading</span>}
+            </p>
           </div>
         </div>
 
         <ol className="relative mt-6 space-y-1">
           <span className="absolute top-5 bottom-5 left-[19px] w-px bg-line" aria-hidden />
           {steps.map((s, i) => {
-            const state = phase > i ? "done" : phase === i ? "active" : "pending";
+            const at = i + 1;
+            const state = failed ? "pending" : phase > at ? "done" : phase === at || (phase === 0 && i === 0) ? "active" : "pending";
             return (
               <li key={s.label} className="relative flex items-center gap-4 rounded-2xl p-2">
                 <span
@@ -366,60 +463,74 @@ function ProgressStep({ source, typeKey, outputs }: { source: PickedSource; type
           })}
         </ol>
 
-        <div className="mt-5">
-          <div className="flex justify-between font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
-            <span>{phase >= 3 ? "All done" : "Working"}</span>
-            <span className="tabular-nums">{Math.round(overall)}%</span>
+        {failed ? (
+          <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-4" role="alert">
+            <p className="flex items-start gap-2 text-sm text-red-800">
+              <AlertCircle className="mt-0.5 size-4 shrink-0" /> {st.error}
+            </p>
+            {retryError && <p className="mt-2 text-[12px] text-red-700">{retryError}</p>}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={onRetry} disabled={retrying} className="btn btn-red btn-sm">
+                {retrying ? <Loader2 className="spin size-3.5" /> : <RotateCcw className="size-3.5" />} Retry
+              </button>
+              <Link href="/app" className="btn btn-ghost btn-sm">
+                Back to library
+              </Link>
+            </div>
           </div>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-panel">
-            <div className={`h-full rounded-full transition-[width] duration-700 ease-[var(--ease-out)] ${phase >= 3 ? "bg-[image:var(--button-red)]" : "progress-shimmer"}`} style={{ width: `${overall}%` }} />
+        ) : (
+          <div className="mt-5">
+            <div className="flex justify-between font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
+              <span>{phase >= 3 ? "All done" : phase === 0 ? "Queued" : "Working"}</span>
+              <span className="tabular-nums">{Math.round(overall)}%</span>
+            </div>
+            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-panel" role="progressbar" aria-valuenow={Math.round(overall)} aria-valuemin={0} aria-valuemax={100} aria-label="Overall progress">
+              <div className={`h-full rounded-full transition-[width] duration-700 ease-[var(--ease-out)] ${phase >= 3 ? "bg-[image:var(--button-red)]" : "progress-shimmer"}`} style={{ width: `${Math.max(2, overall)}%` }} />
+            </div>
+            {phase < 3 && <p className="mt-3 text-[12px] text-muted">You can leave this page. The note keeps processing and shows up in your library when it’s ready.</p>}
           </div>
-          <p className="mt-3 text-[12px] text-muted">You can leave this page. We’ll email you when your notes are ready.</p>
-        </div>
+        )}
       </div>
 
       <div>
-        {phase < 2 ? (
+        {shownKey && shown?.status === "ready" && shown.data ? (
+          <div className="rise rounded-[22px] border border-line bg-card p-5 shadow-[0_24px_50px_-36px_rgba(60,20,10,0.5)]">
+            <p className="flex items-center gap-2 font-mono text-[10px] tracking-[0.12em] text-red-600 uppercase">
+              <span className="size-1.5 rounded-full bg-red-500" /> {OUTPUT_LABELS[shownKey]}
+              <span className="text-muted">· ready</span>
+            </p>
+            <p className="mt-3 text-[17px] leading-relaxed tracking-[-0.01em] text-ink">{clip(preview(shown.data))}</p>
+          </div>
+        ) : failed ? null : (
           <div className="rounded-[22px] border border-line bg-card p-5" aria-busy="true">
-            <div className="skeleton h-3 w-28 rounded-full" />
+            <p className="font-mono text-[10px] tracking-[0.12em] text-muted uppercase">
+              {shownKey && shown?.status === "running" ? `Writing ${OUTPUT_LABELS[shownKey].toLowerCase()}…` : shownKey && shown?.status === "failed" ? `${OUTPUT_LABELS[shownKey]} failed` : "The first output appears here"}
+            </p>
             <div className="skeleton mt-5 h-4 w-full rounded-full" />
             <div className="skeleton mt-2 h-4 w-11/12 rounded-full" />
             <div className="skeleton mt-2 h-4 w-3/4 rounded-full" />
             <div className="skeleton mt-6 h-16 rounded-2xl" />
           </div>
-        ) : (
-          <div className="rise rounded-[22px] border border-line bg-card p-5 shadow-[0_24px_50px_-36px_rgba(60,20,10,0.5)]">
-            <p className="flex items-center gap-2 font-mono text-[10px] tracking-[0.12em] text-red-600 uppercase">
-              <span className={`size-1.5 rounded-full bg-red-500 ${streamDone ? "" : "pulse-dot"}`} /> {first.label}
-              {streamDone && <span className="text-muted">· ready</span>}
-            </p>
-            <p className="mt-3 text-[17px] leading-relaxed tracking-[-0.01em] text-ink">
-              <span className={streamDone ? "" : "caret"}>{first.text.slice(0, streamed)}</span>
-            </p>
-          </div>
         )}
 
-        <ul className="mt-4 flex flex-wrap gap-1.5" aria-label="Outputs">
-          {outputs.map((k, i) => {
-            const ready = i < readyCount;
-            return (
-              <li key={k} className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] transition-all duration-500 ${ready ? "border-red-200 bg-red-50 text-red-800" : "border-line text-muted"}`}>
-                {ready ? <Check className="tick-pop size-3" strokeWidth={3} /> : <span className="size-1.5 rounded-full bg-line-strong" />}
-                {OUTPUT_LABELS[k]}
-              </li>
-            );
-          })}
-        </ul>
+        {keysList.length > 0 && (
+          <ul className="mt-4 flex flex-wrap gap-1.5" aria-label="Outputs">
+            {keysList.map((k) => (
+              <OutputChip key={k} k={k} entry={outputs[k]} />
+            ))}
+          </ul>
+        )}
 
         {phase >= 3 && (
           <div className="rise mt-6 flex flex-wrap items-center gap-3">
-            <Link href={`/app/i/${DEST[typeKey] ?? "demo-meeting"}`} className="btn btn-red btn-lg">
-              Open workspace
+            <Link href={`/app/i/${item.id}`} className="btn btn-red btn-lg">
+              Open notes
               <ArrowRight className="btn-arrow-right size-4" />
             </Link>
-            <Link href="/app" className="link-arrow text-sm text-ink-soft">
-              Back to library <ArrowUpRight className="size-3.5" />
+            <Link href="/app" className="btn btn-ghost">
+              Back to library
             </Link>
+            {failedCount > 0 && <p className="w-full text-[12px] text-muted">{failedCount === 1 ? "One output" : `${failedCount} outputs`} failed. You can retry from the note.</p>}
           </div>
         )}
       </div>
@@ -430,38 +541,83 @@ function ProgressStep({ source, typeKey, outputs }: { source: PickedSource; type
 /* ─────────────────────────── Flow ─────────────────────────── */
 
 const HEADINGS = [
-  { t: "What are we", a: "noting", e: "today?", s: "Paste a link, upload a file, record a meeting or drop in text." },
-  { t: "What", a: "kind", e: "of note is it?", s: "The type decides which outputs we write. You can change it later." },
+  { t: "What are we", a: "noting", e: "today?", s: "Upload a file, record a lecture, paste text or add a web page." },
+  { t: "What", a: "kind", e: "of note is it?", s: "The type decides which outputs we write." },
   { t: "Choose your", a: "outputs", e: ".", s: "Defaults are ticked. Add extras, pick a language, leave instructions." },
   { t: "Turning it into", a: "notes", e: "…", s: "The first output appears as soon as it’s ready." },
 ];
 
+/** Adding notes needs a plan with credits left; say so up front instead of failing at step 4. */
+function PlanGate() {
+  const { data } = useMe();
+  if (!data) return null;
+  const b = data.billing;
+  if (b.canUse && b.credits.balance > 0) return null;
+  const message = b.canUse
+    ? "You're out of credits for this cycle. Upgrade, or wait for your plan to renew."
+    : b.status === "none"
+      ? `Start your ${TRIAL.days}-day free trial to add notes. It comes with ${TRIAL.credits} credits.`
+      : statusLine(b);
+  return (
+    <div className="rise mt-5 flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50/70 px-4 py-3 text-[14px] text-red-800 sm:flex-row sm:items-center sm:justify-between">
+      <span className="flex items-start gap-2">
+        <AlertCircle className="mt-0.5 size-4 shrink-0" /> {message}
+      </span>
+      <Link href="/app/billing" className="btn btn-red btn-sm shrink-0">
+        {b.status === "none" ? "Start free trial" : "Plan & billing"}
+      </Link>
+    </div>
+  );
+}
+
 export function NewFlow() {
+  const invalidate = useInvalidate();
+  const [prefs] = useState(readPrefs);
   const [step, setStep] = useState(0);
   const [source, setSource] = useState<PickedSource | null>(null);
-  const [type, setType] = useState<TypeChoice>("meeting");
-  const [typeTouched, setTypeTouched] = useState(false);
+  const [type, setType] = useState<TypeChoice>(prefs.noteType);
   const [outputs, setOutputs] = useState<OutputKey[] | null>(null);
-  const [lang, setLang] = useState(LANGS[0]!);
+  const [lang, setLang] = useState(LANGS.includes(prefs.language) ? prefs.language : LANGS[0]!);
   const [instructions, setInstructions] = useState("");
+  const [created, setCreated] = useState<Created>({ state: "posting" });
 
-  const suggested = source ? SUGGEST[source.kind] : "general";
-  const chosenType: TypeChoice = typeTouched ? type : suggested;
-  const effective: NoteTypeKey = chosenType === "auto" ? suggested : chosenType;
-  const selectedOutputs = outputs ?? noteType(effective).defaults;
+  const suggested = source ? SUGGEST[source.kind] : null;
+  const selectedOutputs = type === "auto" ? [] : (outputs ?? noteType(type).defaults);
 
   const pickType = (v: TypeChoice) => {
     setType(v);
-    setTypeTouched(true);
     setOutputs(null);
   };
-  const toggleOutput = (k: OutputKey) => setOutputs((o) => {
-    const cur = o ?? noteType(effective).defaults;
-    return cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k];
-  });
+  const toggleOutput = (k: OutputKey) =>
+    setOutputs((o) => {
+      if (type === "auto") return o;
+      const cur = o ?? noteType(type).defaults;
+      return cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k];
+    });
 
-  const canNext = step === 0 ? source !== null : step === 2 ? selectedOutputs.length > 0 : true;
+  const generate = async () => {
+    if (!source) return;
+    setStep(3);
+    setCreated({ state: "posting" });
+    const body: CreateSourceRequest = {
+      source: source.input,
+      noteType: type,
+      ...(type !== "auto" && { outputs: selectedOutputs }),
+      language: apiLanguage(lang),
+      ...(instructions.trim() && { instructions: instructions.trim() }),
+    };
+    try {
+      const { item } = await api.createSource(body);
+      setCreated({ state: "created", id: item.id });
+      void invalidate(keys.library);
+    } catch (e) {
+      setCreated({ state: "error", message: errorMessage(e) });
+    }
+  };
+
+  const canNext = step === 0 ? source !== null : step === 2 ? type === "auto" || selectedOutputs.length > 0 : true;
   const h = HEADINGS[step]!;
+  const locked = step === 3 && created.state !== "error";
 
   return (
     <div className="mx-auto max-w-[980px]">
@@ -471,8 +627,10 @@ export function NewFlow() {
         </Link>
       </div>
 
+      <PlanGate />
+
       <div className="rise mt-5" style={{ animationDelay: "60ms" }}>
-        <Stepper step={step} onJump={setStep} locked={step === 3} />
+        <Stepper step={step} onJump={setStep} locked={locked} />
       </div>
 
       <div key={step} className="rise mt-9">
@@ -486,18 +644,11 @@ export function NewFlow() {
         <p className="mt-2 text-sm text-ink-soft">{h.s}</p>
 
         <div className="mt-7">
-          {step === 0 && <SourceStep
-              source={source}
-              onSource={(s) => {
-                setSource(s);
-                if (!typeTouched) setOutputs(null);
-              }}
-            />}
-          {step === 1 && <TypeStep value={chosenType} suggested={suggested} onChange={pickType} />}
+          {step === 0 && <SourceStep source={source} onSource={setSource} />}
+          {step === 1 && <TypeStep value={type} suggested={suggested} onChange={pickType} />}
           {step === 2 && (
             <OutputsStep
-              typeKey={effective}
-              isAuto={chosenType === "auto"}
+              typeKey={type}
               selected={selectedOutputs}
               onToggle={toggleOutput}
               lang={lang}
@@ -506,7 +657,7 @@ export function NewFlow() {
               onInstructions={setInstructions}
             />
           )}
-          {step === 3 && source && <ProgressStep source={source} typeKey={effective} outputs={selectedOutputs} />}
+          {step === 3 && source && <ProgressStep source={source} auto={type === "auto"} created={created} onBack={() => setStep(0)} />}
         </div>
       </div>
 
@@ -519,14 +670,14 @@ export function NewFlow() {
             {source ? (
               <>
                 <span className="text-ink-soft">{source.label}</span>
-                {step >= 1 && <> · {chosenType === "auto" ? "Auto-detect" : noteType(effective).label}</>}
-                {step >= 2 && <> · {selectedOutputs.length} outputs</>}
+                {step >= 1 && <> · {type === "auto" ? "Auto-detect" : noteType(type).label}</>}
+                {step >= 2 && <> · {type === "auto" ? "default outputs" : `${selectedOutputs.length} outputs`}</>}
               </>
             ) : (
               "Pick a source to continue"
             )}
           </p>
-          <button type="button" onClick={() => setStep((s) => s + 1)} disabled={!canNext} className="btn btn-red btn-sm">
+          <button type="button" onClick={() => (step === 2 ? void generate() : setStep((s) => s + 1))} disabled={!canNext} className="btn btn-red btn-sm">
             {step === 2 ? "Generate notes" : "Continue"}
             {step === 2 ? <Sparkles className="size-3.5" /> : <ArrowRight className="btn-arrow-right size-3.5" />}
           </button>

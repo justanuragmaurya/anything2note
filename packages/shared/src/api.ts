@@ -1,0 +1,199 @@
+/**
+ * Request/response contract for apps/api (plan.md §5.1). Every route lives under `/api`, needs a
+ * Better Auth session (cookie on web, SecureStore cookie header on mobile) and returns JSON.
+ * Errors are `ApiError` with a 4xx/5xx status.
+ */
+
+import type { Billing } from "./billing";
+import type { NoteTypeKey, OutputKey } from "./note-types";
+
+export type ApiError = { error: { code: string; message: string } };
+
+/* ───────────── Sources ───────────── */
+
+export type SourceKind = "youtube" | "audio" | "video" | "recording" | "pdf" | "docx" | "slides" | "image" | "text" | "web";
+
+/** Where in the source a piece of content came from. Text and web sources have none. */
+export type Anchor = { kind: "time"; at: number } | { kind: "page"; page: number };
+
+export type ProcessingStep = "extracting" | "transcribing" | "generating";
+
+export type ItemStatus =
+  | { state: "queued" }
+  | { state: "processing"; step: ProcessingStep; /** 0–100 */ progress: number }
+  | { state: "ready" }
+  | { state: "failed"; error: string };
+
+export type LibraryItem = {
+  id: string;
+  title: string;
+  noteType: NoteTypeKey;
+  source: SourceKind;
+  /** File name, domain, or "Pasted text" */
+  sourceLabel: string;
+  /** The original link, for web sources */
+  sourceUrl?: string;
+  durationSec?: number;
+  pages?: number;
+  /** Unix ms */
+  createdAt: number;
+  folderId: string | null;
+  /** Outputs the user picked, in display order */
+  outputs: OutputKey[];
+  status: ItemStatus;
+  flashcardsDue: number;
+};
+
+export type Folder = { id: string; name: string };
+
+export type LibraryResponse = { items: LibraryItem[]; folders: Folder[] };
+
+/* ───────────── Output data (content_json of a generation) ───────────── */
+
+export type TaskKind = "homework" | "reading" | "exam" | "project";
+
+export type Task = {
+  id: string;
+  task: string;
+  kind: TaskKind;
+  /** ISO date (yyyy-mm-dd) or null → "Not mentioned". Never invented. */
+  due: string | null;
+  anchor?: Anchor;
+  done: boolean;
+};
+
+export type NoteSection = { heading: string; anchor?: Anchor; body: string[]; bullets?: string[] };
+export type Flashcard = { id: string; front: string; back: string; anchor?: Anchor; topic: string };
+export type QuizQuestion = {
+  id: string;
+  q: string;
+  options: string[];
+  correct: number;
+  explanation: string;
+  anchor?: Anchor;
+  topic: string;
+};
+export type GenericBlock = { title?: string; text: string; anchor?: Anchor };
+
+export type OutputData =
+  | { type: "tasks"; items: Task[] }
+  | { type: "notes"; sections: NoteSection[] }
+  | { type: "summary"; tldr: string; points: { text: string; anchor?: Anchor }[] }
+  | { type: "flashcards"; cards: Flashcard[] }
+  | { type: "quiz"; questions: QuizQuestion[] }
+  | { type: "generic"; intro?: string; blocks: GenericBlock[] };
+
+export type OutputEntry = {
+  key: OutputKey;
+  status: "queued" | "running" | "ready" | "failed";
+  data?: OutputData;
+  error?: string;
+};
+
+/* ───────────── Item workspace ───────────── */
+
+/** One transcript line (media), page (documents) or paragraph (text/web). */
+export type ContentSegment = { id: string; text: string; anchor?: Anchor; heading?: string; speaker?: string };
+
+export type ChatMessage = { id: string; role: "user" | "assistant"; content: string; citations: Anchor[]; createdAt: number };
+
+export type ItemDetail = {
+  item: LibraryItem;
+  content: { kind: "media" | "document" | "text"; segments: ContentSegment[] } | null;
+  outputs: Partial<Record<OutputKey, OutputEntry>>;
+  /** Short-lived signed URL for the user's own uploaded file (player / page viewer) */
+  mediaUrl: string | null;
+  mediaType: string | null;
+  chat: ChatMessage[];
+};
+
+/* ───────────── Creating items ───────────── */
+
+/** POST /api/uploads → PUT the file bytes to `url` with `headers`, then create a source with `uploadId`. */
+export type CreateUploadRequest = { filename: string; contentType: string; size: number };
+export type CreateUploadResponse = { uploadId: string; url: string; headers: Record<string, string>; expiresAt: number };
+
+export type SourceInput =
+  | { type: "upload"; uploadId: string; recording?: boolean }
+  | { type: "text"; text: string; title?: string }
+  | { type: "url"; url: string };
+
+/** POST /api/sources */
+export type CreateSourceRequest = {
+  source: SourceInput;
+  noteType: NoteTypeKey | "auto";
+  /** Defaults to the note type's defaults */
+  outputs?: OutputKey[];
+  /** Output language; "auto" = same as the source */
+  language?: string;
+  instructions?: string;
+};
+export type CreateSourceResponse = { item: LibraryItem };
+
+/** PATCH /api/sources/:id */
+export type UpdateSourceRequest = { title?: string; folderId?: string | null };
+
+/** POST /api/sources/:id/chat */
+export type ChatRequest = { message: string };
+export type ChatResponse = { message: ChatMessage };
+
+/* ───────────── Tasks, review, quiz ───────────── */
+
+export type TrackedTask = Task & { itemId: string; itemTitle: string; itemDate: number; noteType: NoteTypeKey };
+export type TasksResponse = { tasks: TrackedTask[] };
+/** PATCH /api/tasks/:id */
+export type UpdateTaskRequest = { done: boolean };
+
+export type ReviewCard = Flashcard & { itemId: string; itemTitle: string; noteType: NoteTypeKey };
+export type DueCardsResponse = { cards: ReviewCard[] };
+export type Rating = "again" | "hard" | "good" | "easy";
+/** POST /api/reviews */
+export type ReviewRequest = { cardId: string; rating: Rating };
+export type ReviewResponse = { nextDue: number };
+
+/** POST /api/quiz-attempts */
+export type QuizAttemptRequest = { itemId: string; output: OutputKey; answers: number[] };
+export type QuizAttemptResponse = { score: number; total: number };
+
+/* ───────────── Account ───────────── */
+
+export type MeResponse = {
+  user: { id: string; name: string; email: string; image: string | null };
+  billing: Billing;
+  streak: number;
+};
+
+export type StatsResponse = {
+  streak: number;
+  cardsReviewedThisMonth: number;
+  cardsReviewedLastMonth: number;
+  /** null until a quiz has been answered */
+  quizAccuracy: number | null;
+  /** 26 weeks × 7 days of reviews, oldest first, last cell = today */
+  heatmap: number[];
+  /** Reviews Mon..Sun this week */
+  weekly: number[];
+  weakTopics: { topic: string; item: string; accuracy: number }[];
+  billing: Billing;
+};
+
+/* ───────────── Limits ───────────── */
+
+/** What the API can process today, whatever the plan (plan limits are in billing.ts). */
+export const UPLOAD_LIMITS = {
+  maxUploadBytes: 200 * 1024 * 1024,
+  /** Groq Whisper takes files up to 25 MB; bigger media needs the (not yet built) processor. */
+  maxMediaBytes: 25 * 1024 * 1024,
+  /** In-app recordings stop here; a 25 MB file holds about this much speech. */
+  maxRecordingSeconds: 60 * 60,
+} as const;
+
+/** Upload types the API can process today. */
+export const SUPPORTED_UPLOADS: Record<Exclude<SourceKind, "youtube" | "text" | "web" | "recording">, string[]> = {
+  pdf: ["application/pdf"],
+  docx: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  slides: ["application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+  image: ["image/png", "image/jpeg", "image/webp"],
+  audio: ["audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a", "audio/x-m4a", "audio/wav", "audio/x-wav", "audio/webm", "audio/ogg", "audio/flac", "audio/aac"],
+  video: ["video/mp4", "video/webm", "video/quicktime"],
+};

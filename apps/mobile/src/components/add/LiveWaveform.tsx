@@ -14,23 +14,18 @@ function Bar({ level, active }: { level: number; active: boolean }) {
   return <Animated.View style={[{ flex: 1, borderRadius: 2, backgroundColor: active ? palette.red500 : palette.lineStrong }, style]} />;
 }
 
-/** Live input level bars. Mock levels until expo-audio metering is wired in. */
-export function LiveWaveform({ active, height = 56 }: { active: boolean; height?: number }) {
+/**
+ * Scrolling history of the microphone's input level (0..1, from the recorder's metering).
+ * A new bar is pushed per reading (`at` is the reading's recording time); bars hold still while paused.
+ */
+export function LiveWaveform({ active, level, at, height = 56 }: { active: boolean; level: number; at: number; height?: number }) {
   const [levels, setLevels] = useState<number[]>(() => Array.from({ length: BARS }, () => 0.1));
-  useEffect(() => {
-    if (!active) return;
-    let tick = 0;
-    const id = setInterval(() => {
-      tick += 1;
-      setLevels((prev) => {
-        const next = prev.slice(1);
-        const speech = Math.abs(Math.sin(tick * 0.35)) * 0.6 + Math.random() * 0.4;
-        next.push(Math.min(1, speech));
-        return next;
-      });
-    }, 110);
-    return () => clearInterval(id);
-  }, [active]);
+  const [lastAt, setLastAt] = useState(at);
+  // One bar per reading: `at` moves with every recorder status poll.
+  if (active && at !== lastAt) {
+    setLastAt(at);
+    setLevels((prev) => [...prev.slice(1), level]);
+  }
   return (
     <View style={{ height, flexDirection: "row", alignItems: "center", gap: 3, alignSelf: "stretch" }}>
       {levels.map((l, i) => (

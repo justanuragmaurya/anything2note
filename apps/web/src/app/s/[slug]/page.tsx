@@ -6,7 +6,7 @@ import { Logo } from "@/components/ui/logo";
 import { Reveal } from "@/components/ui/reveal";
 import { SharedTabs } from "@/components/marketing/shared-tabs";
 import { getSharedNote, SHARED_SLUGS } from "@/lib/mock/marketing-shared";
-import { noteType, OUTPUT_LABELS } from "@/lib/mock/note-types";
+import { noteType, OUTPUT_LABELS } from "@/lib/note-types";
 import { OG_IMAGE } from "@/lib/og";
 
 type Props = { params: Promise<{ slug: string }> };
@@ -133,10 +133,10 @@ export default async function SharedNotePage({ params }: Props) {
             <Reveal className="relative flex flex-col items-center px-8 py-20 text-center md:py-24">
               <p className="eyebrow !text-night-muted">Made with anything2note</p>
               <h2 className="h-section mt-4 max-w-[720px]">
-                Notes like these, from <span className="serif-accent text-red-400">your own</span> meetings.
+                Notes like these, from <span className="serif-accent text-red-400">your own</span> lectures.
               </h2>
               <p className="mt-4 max-w-[460px] text-[16px] text-night-muted">
-                Upload a recording, PDF, YouTube link or whiteboard photo. Free for 120 minutes and 50 pages a month.
+                Record a class, or upload a PDF, YouTube link or whiteboard photo. Free for 120 minutes and 50 pages a month.
               </p>
               <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row">
                 <Link href={makeHref} className="btn btn-cream btn-lg">

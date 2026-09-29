@@ -46,7 +46,6 @@ export const palette = {
 
   // Note-type accents (editorial card colours, Yield-style)
   lecture: '#f3dc8c',
-  meeting: '#f2b5a8',
   interview: '#c9c3ec',
   podcast: '#b9d7c4',
   tutorial: '#a9c8ef',
@@ -127,7 +126,6 @@ export const shadow = {
 
 export type NoteTypeKey =
   | 'lecture'
-  | 'meeting'
   | 'interview'
   | 'podcast'
   | 'tutorial'
@@ -136,7 +134,6 @@ export type NoteTypeKey =
 
 export const noteTypeColor: Record<NoteTypeKey, string> = {
   lecture: palette.lecture,
-  meeting: palette.meeting,
   interview: palette.interview,
   podcast: palette.podcast,
   tutorial: palette.tutorial,

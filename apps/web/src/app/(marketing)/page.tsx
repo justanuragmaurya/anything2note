@@ -43,10 +43,10 @@ export default function Home() {
             eyebrow="002 · Note types"
             title={
               <>
-                Seven kinds of content. <span className="serif-accent">Seven kinds of notes.</span>
+                Six kinds of content. <span className="serif-accent">Six kinds of notes.</span>
               </>
             }
-            sub="A lecture needs flashcards. A meeting needs minutes. Pick a type — or let us detect it — and get outputs that fit. Add or remove any output, any time."
+            sub="A lecture needs flashcards and deadlines. A podcast needs chapters. Pick a type — or let us detect it — and get outputs that fit. Add or remove any output, any time."
           />
           <div className="mt-16">
             <NoteTypeCards />
@@ -63,7 +63,7 @@ export default function Home() {
                 Every line links back to <span className="serif-accent text-red-500">the moment</span> it was said.
               </>
             }
-            sub="Click a timestamp to jump the player. Flip a card. Tick an action item. Ask the assistant. Try it — this one's live."
+            sub="Click a timestamp to jump the player. Flip a card. Tick off a deadline. Ask the assistant. Try it — this one's live."
           />
           <Reveal delay={150} className="mt-14">
             <WorkspacePreview />
@@ -91,8 +91,8 @@ export default function Home() {
       <section id="pricing" className="scroll-mt-24 px-6 pt-12 pb-28">
         <SectionHeading
           eyebrow="004 · Pricing"
-          title="Start free. Upgrade when it sticks."
-          sub="Priced by minutes and pages — so you only pay for what you actually feed it."
+          title="Try it free for a week. Keep it if it sticks."
+          sub="Priced in credits — a minute of audio or a page each — so you only pay for what you actually feed it."
         />
         <Reveal delay={120} className="mt-12">
           <Pricing />

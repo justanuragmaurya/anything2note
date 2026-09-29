@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Check, Pause, Play, RotateCcw, Sparkles, ArrowRight } from "lucide-react";
 import { SlidingTabs } from "@/components/ui/sliding-tabs";
 
-type Mode = "meeting" | "lecture";
+type Mode = "class" | "youtube";
 const DURATION = 52 * 60 + 18;
 
 const fmt = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -22,21 +22,20 @@ function Stamp({ at, onSeek }: { at: number; onSeek: (s: number) => void }) {
   );
 }
 
-const MINUTES = [
-  { t: "Q3 launch timeline", at: 132, body: "Launch moves to 14 Oct; beta cohort expands to 500 users." },
-  { t: "Pricing experiment", at: 1104, body: "Test ₹1,499/yr against ₹1,199/yr in India only." },
-  { t: "Hiring", at: 2410, body: "Open one backend role; pause design contractor search." },
+type TaskKind = "homework" | "reading" | "exam" | "project";
+const KIND_LABEL: Record<TaskKind, string> = { homework: "Homework", reading: "Reading", exam: "Exam", project: "Project" };
+
+const TASKS: { task: string; kind: TaskKind; due: string; at: number }[] = [
+  { task: "Read Clayden ch. 15, pp. 328–345", kind: "reading", due: "Tue, 29 Sep", at: 2968 },
+  { task: "Problem set 6: SN1/SN2 mechanisms, Q1–12", kind: "homework", due: "Fri, 2 Oct", at: 3004 },
+  { task: "Midterm 2: substitution and elimination", kind: "exam", due: "Wed, 14 Oct", at: 3046 },
+  { task: "Pick a molecule for the group mechanism poster", kind: "project", due: "Not mentioned", at: 3080 },
 ];
 
-const ACTIONS = [
-  { task: "Share revised launch plan", owner: "Priya", due: "Fri, 3 Oct", at: 402 },
-  { task: "Set up pricing A/B test", owner: "Arjun", due: "Not mentioned", at: 1260 },
-  { task: "Draft backend job post", owner: "Not mentioned", due: "Not mentioned", at: 2480 },
-];
-
-const DECISIONS = [
-  { d: "Launch date is 14 October.", at: 318 },
-  { d: "India-only pricing test for 2 weeks.", at: 1188 },
+const REVISION = [
+  { d: "SN2: one step, backside attack, inversion of configuration.", at: 560 },
+  { d: "SN1: carbocation first, racemic product, rate depends on substrate only.", at: 1350 },
+  { d: "Tertiary + weak nucleophile → SN1. Methyl or primary + strong nucleophile → SN2.", at: 2150 },
 ];
 
 const CARDS = [
@@ -45,34 +44,41 @@ const CARDS = [
   { q: "When is a function differentiable at a point?", a: "When the limit of the difference quotient exists there.", at: 305 },
 ];
 
-const NOTES = [
-  { h: "1. Limits, revisited", at: 60, b: "Differentiability needs the difference-quotient limit to exist — continuity alone isn't enough (|x| at 0)." },
-  { h: "2. The chain rule", at: 700, b: "For y = f(g(x)), dy/dx = f′(g(x))·g′(x). Think: outside derivative, keep inside, times inside derivative." },
-  { h: "3. Worked examples", at: 1010, b: "sin(x²), e³ˣ, √(1+x²). Common mistake: forgetting the inner derivative." },
-];
+const NOTES: Record<Mode, { h: string; at: number; b: string }[]> = {
+  class: [
+    { h: "1. Two ways to substitute", at: 95, b: "Nucleophilic substitution swaps a leaving group for a nucleophile. SN2 does it in one step; SN1 forms a carbocation first." },
+    { h: "2. SN2: one concerted step", at: 540, b: "Backside attack, so the stereocentre inverts. Rate = k[substrate][Nu⁻]. Fastest at methyl and primary carbons." },
+    { h: "3. SN1: carbocation first", at: 1320, b: "The leaving group goes, then the nucleophile hits a flat carbocation from either face: a racemic mix. Rate = k[substrate]." },
+  ],
+  youtube: [
+    { h: "1. Limits, revisited", at: 60, b: "Differentiability needs the difference-quotient limit to exist — continuity alone isn't enough (|x| at 0)." },
+    { h: "2. The chain rule", at: 700, b: "For y = f(g(x)), dy/dx = f′(g(x))·g′(x). Think: outside derivative, keep inside, times inside derivative." },
+    { h: "3. Worked examples", at: 1010, b: "sin(x²), e³ˣ, √(1+x²). Common mistake: forgetting the inner derivative." },
+  ],
+};
 
 const CHAT = {
-  meeting: {
-    q: "What did we decide about pricing?",
-    a: "You agreed to run an India-only test of ₹1,499/yr against ₹1,199/yr for two weeks. Arjun will set it up; no due date was mentioned.",
-    at: 1188,
+  class: {
+    q: "Which mechanism for tert-butyl bromide in water?",
+    a: "SN1. It's a tertiary carbon and water is a weak nucleophile and a polar protic solvent, so the carbocation forms first. The lecturer covers this case right after the rate laws.",
+    at: 2150,
   },
-  lecture: {
+  youtube: {
     q: "Explain the chain rule like I'm new to this",
     a: "Differentiate the outer function, leave the inside alone, then multiply by the derivative of the inside. For sin(x²): cos(x²) × 2x.",
     at: 700,
   },
 };
 
-type TabKey = "minutes" | "actions" | "decisions" | "notes" | "cards" | "quiz" | "chat";
+type TabKey = "notes" | "tasks" | "revision" | "cards" | "quiz" | "chat";
 const TABS: Record<Mode, { value: TabKey; label: string }[]> = {
-  meeting: [
-    { value: "minutes", label: "Minutes" },
-    { value: "actions", label: "Action items" },
-    { value: "decisions", label: "Decisions" },
+  class: [
+    { value: "notes", label: "Notes" },
+    { value: "tasks", label: "Tasks & deadlines" },
+    { value: "revision", label: "Revision" },
     { value: "chat", label: "Chat" },
   ],
-  lecture: [
+  youtube: [
     { value: "notes", label: "Notes" },
     { value: "cards", label: "Flashcards" },
     { value: "quiz", label: "Quiz" },
@@ -105,9 +111,9 @@ function TypedAnswer({ text, children }: { text: string; children: React.ReactNo
 }
 
 export function WorkspacePreview() {
-  const [mode, setMode] = useState<Mode>("meeting");
-  const [tab, setTab] = useState<TabKey>("minutes");
-  const [time, setTime] = useState(132);
+  const [mode, setMode] = useState<Mode>("class");
+  const [tab, setTab] = useState<TabKey>("notes");
+  const [time, setTime] = useState(95);
   const [playing, setPlaying] = useState(false);
   const [done, setDone] = useState<Record<number, boolean>>({ 0: true });
   const [card, setCard] = useState(0);
@@ -125,7 +131,7 @@ export function WorkspacePreview() {
   const switchMode = (m: Mode) => {
     setMode(m);
     setTab(TABS[m][0]!.value);
-    setTime(m === "meeting" ? 132 : 60);
+    setTime(m === "class" ? 95 : 60);
   };
   const seek = (s: number) => {
     setTime(s);
@@ -146,14 +152,14 @@ export function WorkspacePreview() {
           tone="ink"
           value={mode}
           onChange={switchMode}
-          ariaLabel="Note type"
+          ariaLabel="Sample source"
           items={[
-            { value: "meeting", label: "Meeting" },
-            { value: "lecture", label: "Lecture" },
+            { value: "class", label: "Class recording" },
+            { value: "youtube", label: "YouTube lecture" },
           ]}
         />
         <span className="hidden font-mono text-[10px] tracking-[0.12em] text-muted uppercase sm:block">
-          {mode === "meeting" ? "weekly-sync.m4a" : "youtube · calculus 07"}
+          {mode === "class" ? "chem-204-lecture-12.m4a" : "youtube · calculus 07"}
         </span>
       </div>
 
@@ -170,7 +176,7 @@ export function WorkspacePreview() {
                   <span
                     key={i}
                     className={`flex-1 rounded-full transition-colors duration-200 ${played ? "bg-red-400" : "bg-night-text/20"}`}
-                    style={{ height: `${Math.round(18 + Math.abs(Math.sin(i * 1.3 + (mode === "lecture" ? 1 : 0))) * 82)}%` }}
+                    style={{ height: `${Math.round(18 + Math.abs(Math.sin(i * 1.3 + (mode === "youtube" ? 1 : 0))) * 82)}%` }}
                   />
                 );
               })}
@@ -193,10 +199,10 @@ export function WorkspacePreview() {
           </div>
 
           <div className="mt-5 space-y-3 text-[13px] leading-relaxed">
-            {(mode === "meeting"
+            {(mode === "class"
               ? [
-                  { s: "Priya", at: 132, t: "Let's lock the launch for the 14th — beta goes to 500 people." },
-                  { s: "Arjun", at: 1104, t: "For India I'd test ₹1,499 against ₹1,199 before we commit." },
+                  { s: "Lecturer", at: 540, t: "SN2 is one step: the nucleophile comes in from the back as the bromide leaves." },
+                  { s: "Student", at: 1455, t: "So if the carbocation is flat, the nucleophile can attack from either side?" },
                 ]
               : [
                   { s: "Lecturer", at: 700, t: "So the chain rule: outer derivative, keep the inside, times the inner derivative." },
@@ -221,36 +227,15 @@ export function WorkspacePreview() {
           </div>
 
           <div key={`${mode}-${tab}`} className="rise mt-5 flex-1">
-            {tab === "minutes" && (
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-x-6 gap-y-1 font-mono text-[11px] text-muted uppercase">
-                  <span>Weekly sync</span>
-                  <span>52 min</span>
-                  <span>Attendees: Priya, Arjun, Meera</span>
-                </div>
-                {MINUTES.map((m, i) => (
-                  <div key={m.t} className="rounded-2xl border border-line p-4 transition-colors hover:border-line-strong">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium tracking-[-0.01em]">
-                        <span className="mr-2 text-muted">{i + 1}.</span>
-                        {m.t}
-                      </p>
-                      <Stamp at={m.at} onSeek={seek} />
-                    </div>
-                    <p className="mt-1.5 text-sm text-ink-soft">{m.body}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {tab === "actions" && (
+            {tab === "tasks" && (
               <ul className="space-y-2">
-                {ACTIONS.map((a, i) => (
+                {TASKS.map((a, i) => (
                   <li key={a.task} className="flex items-start gap-3 rounded-2xl border border-line p-4">
                     <button
                       type="button"
                       onClick={() => setDone((d) => ({ ...d, [i]: !d[i] }))}
                       aria-pressed={!!done[i]}
+                      aria-label={`Mark “${a.task}” done`}
                       className={`mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border transition-all duration-200 active:scale-90 ${
                         done[i] ? "border-red-500 bg-red-500 text-cream" : "border-line-strong hover:border-red-400"
                       }`}
@@ -260,7 +245,7 @@ export function WorkspacePreview() {
                     <div className="min-w-0 flex-1">
                       <p className={`text-sm transition-colors duration-300 ${done[i] ? "text-muted line-through" : "text-ink"}`}>{a.task}</p>
                       <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted">
-                        <span className={a.owner === "Not mentioned" ? "italic" : ""}>👤 {a.owner}</span>
+                        <span className="rounded-full bg-nt-lecture/70 px-2 py-0.5 text-[11px] text-ink">{KIND_LABEL[a.kind]}</span>
                         <span className={a.due === "Not mentioned" ? "italic" : ""}>📅 {a.due}</span>
                         <Stamp at={a.at} onSeek={seek} />
                       </div>
@@ -270,12 +255,12 @@ export function WorkspacePreview() {
               </ul>
             )}
 
-            {tab === "decisions" && (
+            {tab === "revision" && (
               <ul className="space-y-3">
-                {DECISIONS.map((d) => (
-                  <li key={d.d} className="flex items-center justify-between gap-3 rounded-2xl bg-nt-meeting/50 p-4 text-sm">
+                {REVISION.map((d) => (
+                  <li key={d.d} className="flex items-center justify-between gap-3 rounded-2xl bg-nt-lecture/50 p-4 text-sm">
                     <span className="flex items-center gap-2">
-                      <Check className="size-4 text-red-600" /> {d.d}
+                      <Check className="size-4 shrink-0 text-red-600" /> {d.d}
                     </span>
                     <Stamp at={d.at} onSeek={seek} />
                   </li>
@@ -285,7 +270,14 @@ export function WorkspacePreview() {
 
             {tab === "notes" && (
               <div className="space-y-4">
-                {NOTES.map((n) => (
+                {mode === "class" && (
+                  <div className="flex flex-wrap gap-x-6 gap-y-1 font-mono text-[11px] text-muted uppercase">
+                    <span>CHEM 204 · Lecture 12</span>
+                    <span>52 min</span>
+                    <span>Recorded in class</span>
+                  </div>
+                )}
+                {NOTES[mode].map((n) => (
                   <div key={n.h}>
                     <div className="flex items-center gap-2">
                       <h4 className="font-medium tracking-[-0.01em]">{n.h}</h4>

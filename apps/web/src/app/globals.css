@@ -41,7 +41,6 @@
   --cream: #fffbf5;
 
   --nt-lecture: #f3dc8c;
-  --nt-meeting: #f2b5a8;
   --nt-interview: #c9c3ec;
   --nt-podcast: #b9d7c4;
   --nt-tutorial: #a9c8ef;
@@ -86,7 +85,6 @@
   --color-night-muted: var(--night-muted);
   --color-cream: var(--cream);
   --color-nt-lecture: var(--nt-lecture);
-  --color-nt-meeting: var(--nt-meeting);
   --color-nt-interview: var(--nt-interview);
   --color-nt-podcast: var(--nt-podcast);
   --color-nt-tutorial: var(--nt-tutorial);

@@ -4,7 +4,7 @@ import { SignInShowcase } from "@/components/marketing/sign-in-showcase";
 
 export const metadata: Metadata = {
   title: "Sign in",
-  description: "Sign in or create your anything2note account with email, Google or Apple.",
+  description: "Sign in or create your anything2note account with email or Google.",
   alternates: { canonical: "/sign-in" },
 };
 
@@ -18,12 +18,14 @@ function safeNext(raw: string | string[] | undefined): string {
 }
 
 export default async function SignInPage({ searchParams }: Props) {
-  const next = safeNext((await searchParams).next);
+  const sp = await searchParams;
+  const next = safeNext(sp.next);
+  const oauthError = typeof sp.error === "string" ? sp.error : undefined;
 
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] min-h-dvh lg:grid-cols-2">
       <main className="paper-hero grain relative flex items-center justify-center px-6 pt-28 pb-16 md:px-10">
-        <SignInForm next={next} />
+        <SignInForm next={next} oauthError={oauthError} />
       </main>
       <aside aria-label="What anything2note makes" className="hidden lg:block">
         <SignInShowcase />

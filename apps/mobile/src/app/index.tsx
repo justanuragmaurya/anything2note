@@ -1,10 +1,12 @@
 import { Redirect } from "expo-router";
-import { useSession } from "@/lib/session";
+import { authClient } from "@/lib/auth-client";
+import { usePreferences } from "@/lib/preferences";
 
-/** Entry: first launch → onboarding → sign-in → Library. */
+/** Entry: first launch → onboarding → sign-in → Library. Signed-in users go straight to Library. */
 export default function Index() {
-  const { onboarded, email } = useSession();
+  const { data: session } = authClient.useSession();
+  const { onboarded } = usePreferences();
+  if (session) return <Redirect href="/library" />;
   if (!onboarded) return <Redirect href="/onboarding" />;
-  if (!email) return <Redirect href="/sign-in" />;
-  return <Redirect href="/library" />;
+  return <Redirect href="/sign-in" />;
 }

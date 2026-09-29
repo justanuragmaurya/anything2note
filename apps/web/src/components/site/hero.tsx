@@ -20,7 +20,7 @@ type Floater = {
 // Positions echo Yield Theory's scattered bills; each object is a "source".
 const FLOATERS: Floater[] = [
   { id: "hero-cassette", className: "left-[3%] top-[14%]", width: "w-[190px]", rotate: -14, delay: 100, motion: "drift", depth: 18, tint: "var(--red-100)" },
-  { id: "hero-tv", className: "right-[4%] top-[12%]", width: "w-[170px]", rotate: 9, delay: 250, motion: "bob", depth: 14, tint: "var(--nt-meeting)" },
+  { id: "hero-tv", className: "right-[4%] top-[12%]", width: "w-[170px]", rotate: 9, delay: 250, motion: "bob", depth: 14, tint: "var(--nt-tutorial)" },
   { id: "hero-mic", className: "left-[17%] top-[50%] hidden lg:block", width: "w-[92px]", rotate: 18, delay: 400, motion: "bob", depth: 26, tint: "var(--red-200)" },
   { id: "hero-pdf", className: "left-[4%] bottom-[4%] hidden md:block", width: "w-[170px]", rotate: -8, delay: 550, motion: "drift", depth: 12, tint: "var(--nt-reading)" },
   { id: "hero-polaroid", className: "right-[6%] bottom-[6%] hidden md:block", width: "w-[180px]", rotate: 12, delay: 700, motion: "drift", depth: 16, tint: "var(--card)" },
@@ -28,8 +28,8 @@ const FLOATERS: Floater[] = [
 ];
 
 const SOURCES = [
+  "Record today's lecture in class…",
   "Paste a YouTube lecture link…",
-  "Drop Tuesday's stand-up recording…",
   "Upload a 40-page research PDF…",
   "Snap the whiteboard before it's wiped…",
   "Add a podcast episode…",
@@ -123,12 +123,12 @@ export function Hero() {
 
         <div className="relative z-10 px-6 pt-[140px] text-center">
           <Link
-            href="/#note-types"
+            href="/record-lectures"
             className="rise group inline-flex items-center gap-3 rounded-full border border-line bg-card/80 py-1.5 pr-1.5 pl-4 text-[13px] text-ink-soft backdrop-blur transition-colors hover:border-red-300"
             style={{ animationDelay: "0ms" }}
           >
             <span className="size-1.5 rounded-full bg-red-500 pulse-dot" />
-            New · Meeting minutes with speaker labels
+            New · Record a lecture, get the notes
             <span className="grid size-6 place-items-center rounded-full bg-red-500 text-cream transition-transform duration-300 group-hover:translate-x-0.5">
               <ArrowRight className="size-3.5" />
             </span>
@@ -139,8 +139,8 @@ export function Hero() {
           </h1>
 
           <p className="rise mx-auto mt-6 max-w-[560px] text-[17px] leading-relaxed text-ink-soft" style={{ animationDelay: "240ms" }}>
-            YouTube links, meeting recordings, PDFs, slides, whiteboard photos. Get detailed notes, minutes, action
-            items, flashcards and quizzes — and an assistant that knows every word.
+            Record a lecture in class, or drop in a YouTube link, PDF, slides or a whiteboard photo. Get detailed notes,
+            flashcards, quizzes and every deadline mentioned — and an assistant that knows every word.
           </p>
 
           {/* Drop bar */}
@@ -167,7 +167,7 @@ export function Hero() {
               <ArrowRight className="size-4" />
             </Link>
             <span className="h-4 w-px bg-line-strong" />
-            <span className="text-sm text-muted">Free · no card needed</span>
+            <span className="text-sm text-muted">7 days free · cancel anytime</span>
           </div>
         </div>
 

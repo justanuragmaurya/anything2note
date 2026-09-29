@@ -1,41 +1,56 @@
 import { useRef, useState } from "react";
-import { ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import Animated, { FadeInDown, FadeInUp, LinearTransition } from "react-native-reanimated";
-import { Body, Chip, Eyebrow, Icon, PressableScale, TimestampChip } from "@/components/ui";
+import Animated, { FadeIn, FadeInDown, FadeInUp, LinearTransition } from "react-native-reanimated";
+import type { Anchor, ItemDetail } from "@a2n/shared";
+import { AnchorChip, Body, Chip, Eyebrow, Icon, PressableScale, Small } from "@/components/ui";
+import { errorMessage } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
-import type { Item } from "@/lib/mock/types";
+import { useSendChat } from "@/lib/queries";
 import { fontFamily, gradients, palette } from "@/theme";
-import { TypedText } from "../TypedText";
 
-type Msg = { id: number; role: "user" | "assistant"; text: string; cites: number[] };
+/** Starter questions for an empty chat; each is sent as-is to the item's chat. */
+const STARTERS = ["Summarise this in five bullets", "What would be on an exam about this?", "Explain the hardest part simply"];
 
-/** Mock assistant: answers from the transcript and cites the moment it came from. */
-function mockAnswer(item: Item, q: string): Msg {
-  const lines = item.transcript;
-  const words = q.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
-  const hit = lines.find((l) => words.some((w) => l.text.toLowerCase().includes(w))) ?? lines[Math.floor(lines.length / 2)];
-  const text = hit
-    ? `From ${hit.speaker} at that point: “${hit.text}” That's the most relevant moment I can find for “${q.trim()}”.`
-    : "I couldn't find that in this item. Try asking about something that was said or written in it.";
-  return { id: Date.now() + 1, role: "assistant", text, cites: hit ? [hit.at] : [] };
+/** Only anchors the item can jump to: timestamps for media, pages for documents. */
+function usable(content: ItemDetail["content"], cites: Anchor[]): Anchor[] {
+  const kind = content?.kind === "media" ? "time" : content?.kind === "document" ? "page" : null;
+  const seen = new Set<string>();
+  return cites.filter((c) => {
+    const key = c.kind === "time" ? `t${c.at}` : `p${c.page}`;
+    if (c.kind !== kind || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
-export function Chat({ item }: { item: Item }) {
-  const seed = item.chat;
-  const [messages, setMessages] = useState<Msg[]>(() =>
-    seed ? [{ id: 1, role: "user", text: seed.q, cites: [] }, { id: 2, role: "assistant", text: seed.a, cites: [seed.at] }] : [],
-  );
+/** Ask the item: answers come from its own content and cite where they came from. */
+export function Chat({ detail }: { detail: ItemDetail }) {
+  const send = useSendChat(detail.item.id);
   const [input, setInput] = useState("");
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const scroll = useRef<ScrollView>(null);
+  // Chat reads the extracted content, so it opens once the source has been read.
+  const ready = !!detail.content;
 
-  const send = (q: string) => {
-    if (!q.trim()) return;
+  const ask = (q: string) => {
+    const text = q.trim();
+    if (!text || send.isPending || !ready) return;
     haptic.tap();
     setInput("");
-    setMessages((m) => [...m, { id: Date.now(), role: "user", text: q.trim(), cites: [] }]);
-    setTimeout(() => setMessages((m) => [...m, mockAnswer(item, q)]), 450);
+    setError(null);
+    setPending(text);
+    send.mutate(text, {
+      onSettled: () => setPending(null),
+      onError: (e) => {
+        setError(errorMessage(e));
+        setInput(text);
+      },
+    });
   };
+
+  const messages = detail.chat;
 
   return (
     <View style={{ flex: 1 }}>
@@ -45,60 +60,100 @@ export function Chat({ item }: { item: Item }) {
         onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })}
         keyboardDismissMode="interactive"
       >
-        {messages.length === 0 ? (
-          <Body style={{ textAlign: "center", marginTop: 24 }}>Ask anything about this item. Answers cite the exact moment.</Body>
+        {messages.length === 0 && !pending ? (
+          <>
+            <Body style={{ textAlign: "center", marginTop: 24 }}>
+              {ready ? "Ask anything about this item. Answers cite where they came from." : "Chat opens once the source has been read."}
+            </Body>
+            {ready ? (
+              <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6, marginTop: 4 }}>
+                {STARTERS.map((s) => (
+                  <Chip key={s} size="sm" label={s} onPress={() => ask(s)} />
+                ))}
+              </View>
+            ) : null}
+          </>
         ) : null}
         {messages.map((m) =>
           m.role === "user" ? (
-            <Animated.View key={m.id} entering={FadeInUp.duration(260)} layout={LinearTransition} style={styles.userWrap}>
-              <LinearGradient colors={gradients.buttonInk} style={styles.user}>
-                <Body style={{ color: "#f6ece8", fontSize: 15 }}>{m.text}</Body>
-              </LinearGradient>
-            </Animated.View>
+            <UserBubble key={m.id} text={m.content} />
           ) : (
             <Animated.View key={m.id} entering={FadeInDown.duration(300)} layout={LinearTransition} style={styles.aiRow}>
               <View style={styles.avatar}>
                 <Icon name="sparkles" size={13} color={palette.cream} />
               </View>
               <View style={styles.ai}>
-                <TypedText text={m.text}>
-                  {m.cites.length ? (
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-                      <Eyebrow>Source</Eyebrow>
-                      {m.cites.map((c) => (
-                        <TimestampChip key={c} at={c} />
-                      ))}
-                    </View>
-                  ) : null}
-                </TypedText>
+                <Body selectable style={{ fontSize: 15, lineHeight: 22, color: palette.ink }}>
+                  {m.content}
+                </Body>
+                {usable(detail.content, m.citations).length ? (
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 10 }}>
+                    <Eyebrow>Source</Eyebrow>
+                    {usable(detail.content, m.citations).map((c) => (
+                      <AnchorChip key={c.kind === "time" ? `t${c.at}` : `p${c.page}`} anchor={c} />
+                    ))}
+                  </View>
+                ) : null}
               </View>
             </Animated.View>
           ),
         )}
-        {seed ? (
-          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
-            {seed.suggestions.map((s) => (
-              <Chip key={s} size="sm" label={s} onPress={() => send(s)} />
-            ))}
-          </View>
+        {pending ? (
+          <>
+            <UserBubble text={pending} />
+            <Animated.View entering={FadeIn.delay(150)} style={styles.aiRow}>
+              <View style={styles.avatar}>
+                <Icon name="sparkles" size={13} color={palette.cream} />
+              </View>
+              <View style={[styles.ai, { flexDirection: "row", alignItems: "center", gap: 10 }]}>
+                <ActivityIndicator size="small" color={palette.red500} />
+                <Small>Reading the source…</Small>
+              </View>
+            </Animated.View>
+          </>
+        ) : null}
+        {error ? (
+          <Animated.View entering={FadeIn} style={styles.error}>
+            <Icon name="info" size={14} color={palette.red600} />
+            <Small style={{ flex: 1, color: palette.red700 }}>{error}</Small>
+          </Animated.View>
         ) : null}
       </ScrollView>
 
-      <View style={styles.inputBar}>
+      <View style={[styles.inputBar, !ready && { opacity: 0.5 }]}>
         <TextInput
           value={input}
           onChangeText={setInput}
-          placeholder="Ask anything about this item…"
+          editable={ready}
+          placeholder={ready ? "Ask anything about this item…" : "Available once it's been read"}
           placeholderTextColor={palette.muted}
-          onSubmitEditing={() => send(input)}
+          onSubmitEditing={() => ask(input)}
           returnKeyType="send"
+          maxLength={4000}
           style={styles.input}
         />
-        <PressableScale onPress={() => send(input)} haptics={false} scaleTo={0.9} style={styles.send} accessibilityLabel="Send">
+        <PressableScale
+          onPress={() => ask(input)}
+          disabled={!ready || send.isPending}
+          haptics={false}
+          scaleTo={0.9}
+          style={[styles.send, (!ready || send.isPending) && { opacity: 0.5 }]}
+          accessibilityLabel="Send"
+        >
           <Icon name="send" size={15} color={palette.cream} weight="bold" />
         </PressableScale>
       </View>
     </View>
+  );
+}
+
+function UserBubble({ text }: { text: string }) {
+  return (
+    <Animated.View entering={FadeInUp.duration(260)} layout={LinearTransition} style={styles.userWrap}>
+      <LinearGradient colors={gradients.buttonInk} style={styles.user}>
+        <Body style={{ color: "#f6ece8", fontSize: 15 }}>{text}</Body>
+      </LinearGradient>
+    </Animated.View>
   );
 }
 
@@ -108,6 +163,7 @@ const styles = StyleSheet.create({
   aiRow: { flexDirection: "row", gap: 10, maxWidth: "94%" },
   avatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: palette.red500, alignItems: "center", justifyContent: "center" },
   ai: { flex: 1, borderRadius: 20, borderTopLeftRadius: 6, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.card, padding: 14 },
+  error: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 14, backgroundColor: palette.red50, borderWidth: 1, borderColor: palette.red100 },
   inputBar: {
     flexDirection: "row",
     alignItems: "center",

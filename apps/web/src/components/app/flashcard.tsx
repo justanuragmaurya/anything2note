@@ -2,14 +2,16 @@
 
 import type { ReactNode } from "react";
 import { RotateCw } from "lucide-react";
+import type { Rating } from "@a2n/shared";
 
-export type Rating = "again" | "hard" | "good" | "easy";
+export type { Rating };
 
+/** The API schedules the next review from the rating; "Again" comes back in 10 minutes. */
 export const RATINGS: { value: Rating; label: string; hint: string }[] = [
-  { value: "again", label: "Again", hint: "<10m" },
-  { value: "hard", label: "Hard", hint: "1d" },
-  { value: "good", label: "Good", hint: "3d" },
-  { value: "easy", label: "Easy", hint: "8d" },
+  { value: "again", label: "Again", hint: "Forgot" },
+  { value: "hard", label: "Hard", hint: "Struggled" },
+  { value: "good", label: "Good", hint: "Got it" },
+  { value: "easy", label: "Easy", hint: "Instantly" },
 ];
 
 type Props = {

@@ -1,65 +1,86 @@
-import { StyleSheet, View } from "react-native";
-import { ActionRow } from "@/components/actions/ActionRow";
-import { Body, Button, Eyebrow, Skeleton } from "@/components/ui";
-import { actionsStore, useActions } from "@/lib/actions-store";
-import type { Item, OutputContent } from "@/lib/mock/types";
-import { OUTPUT_LABELS, type OutputKey } from "@/lib/note-types";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
+import type { ItemDetail, OutputData, OutputKey } from "@a2n/shared";
+import { TaskRow } from "@/components/tasks/TaskRow";
+import { Body, Button, Eyebrow, Skeleton, Small } from "@/components/ui";
+import { errorMessage } from "@/lib/api";
+import { OUTPUT_LABELS, noteType } from "@/lib/note-types";
+import { useRetryItem, useToggleTask } from "@/lib/queries";
 import { palette } from "@/theme";
 import { Deck } from "./renderers/Deck";
 import { Quiz } from "./renderers/Quiz";
-import { Bullets, Decisions, Glossary, Minutes, Notes, Summary } from "./renderers/Structured";
+import { Generic, Notes, Summary } from "./renderers/Structured";
 
-function Actions({ ids }: { ids: string[] }) {
-  const all = useActions();
-  const items = all.filter((a) => ids.includes(a.id));
+function Tasks({ data, itemId }: { data: Extract<OutputData, { type: "tasks" }>; itemId: string }) {
+  const toggle = useToggleTask();
+  if (!data.items.length) return <Body>No homework, readings or deadlines were mentioned.</Body>;
   return (
     <View style={{ gap: 8 }}>
-      {items.map((a) => (
-        <ActionRow key={a.id} item={a} onToggle={() => actionsStore.toggle(a.id)} showSource={false} />
+      {data.items.map((t) => (
+        <TaskRow key={t.id} item={t} onToggle={() => toggle.mutate({ id: t.id, done: !t.done, itemId })} showSource={false} />
       ))}
+      {toggle.isError ? <Small style={{ color: palette.red600 }}>Couldn&apos;t save that tick: {errorMessage(toggle.error)}</Small> : null}
     </View>
   );
 }
 
-function Content({ content, item }: { content: OutputContent; item: Item }) {
-  switch (content.kind) {
-    case "minutes":
-      return <Minutes data={content} />;
-    case "actions":
-      return <Actions ids={content.items.map((a) => a.id)} />;
-    case "decisions":
-      return <Decisions data={content} />;
+function Content({ data, output, detail }: { data: OutputData; output: OutputKey; detail: ItemDetail }) {
+  switch (data.type) {
+    case "tasks":
+      return <Tasks data={data} itemId={detail.item.id} />;
     case "notes":
-      return <Notes data={content} />;
+      return <Notes data={data} />;
     case "flashcards":
-      return <Deck cards={content.cards} source={item.title} />;
+      return <Deck cards={data.cards} source={detail.item.title} tint={noteType(detail.item.noteType).color} />;
     case "quiz":
-      return <Quiz questions={content.questions} />;
-    case "bullets":
-      return <Bullets data={content} />;
-    case "glossary":
-      return <Glossary data={content} />;
+      return <Quiz questions={data.questions} itemId={detail.item.id} output={output} />;
     case "summary":
-      return <Summary data={content} />;
+      return <Summary data={data} />;
+    case "generic":
+      return <Generic data={data} output={output} />;
   }
 }
 
-/** Renders one registry output for an item, or a "not generated yet" state. */
-export function OutputView({ output, item }: { output: OutputKey; item: Item }) {
-  const content = item.outputs[output];
-  if (content) return <Content content={content} item={item} />;
+/** Renders one output of an item as the API reports it: written, still being written, failed, or not made. */
+export function OutputView({ output, detail }: { output: OutputKey; detail: ItemDetail }) {
+  const entry = detail.outputs[output];
+  const retry = useRetryItem();
+  const label = OUTPUT_LABELS[output];
+
+  if (entry?.status === "ready" && entry.data) return <Content data={entry.data} output={output} detail={detail} />;
+
+  if (entry?.status === "failed") {
+    return (
+      <View style={styles.empty}>
+        <Eyebrow color={palette.red600}>{label}</Eyebrow>
+        <Body style={{ fontSize: 14, marginTop: 8 }}>{entry.error ?? "This output couldn't be written."}</Body>
+        {retry.isError ? <Small style={{ color: palette.red600, marginTop: 8 }}>{errorMessage(retry.error)}</Small> : null}
+        <Button size="sm" variant="ink" leadingIcon="retry" style={{ marginTop: 14 }} loading={retry.isPending} onPress={() => retry.mutate(detail.item.id)}>
+          Try again
+        </Button>
+      </View>
+    );
+  }
+
+  if (entry?.status === "queued" || entry?.status === "running" || (!entry && detail.item.status.state !== "ready" && detail.item.status.state !== "failed")) {
+    return (
+      <View style={styles.empty}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {entry?.status === "running" ? <ActivityIndicator size="small" color={palette.red500} /> : null}
+          <Eyebrow>{entry?.status === "running" ? `Writing ${label.toLowerCase()}…` : `${label} · queued`}</Eyebrow>
+        </View>
+        <View style={{ gap: 8, marginTop: 16 }}>
+          <Skeleton width="92%" />
+          <Skeleton width="78%" />
+          <Skeleton width="85%" />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.empty}>
-      <Eyebrow>{OUTPUT_LABELS[output]}</Eyebrow>
-      <View style={{ gap: 8, marginVertical: 16 }}>
-        <Skeleton width="92%" />
-        <Skeleton width="78%" />
-        <Skeleton width="85%" />
-      </View>
-      <Body style={{ fontSize: 14 }}>This output wasn&apos;t generated for this item yet.</Body>
-      <Button size="sm" variant="ink" icon="sparkles" style={{ marginTop: 14 }}>
-        Generate now
-      </Button>
+      <Eyebrow>{label}</Eyebrow>
+      <Body style={{ fontSize: 14, marginTop: 8 }}>This output wasn&apos;t made for this item.</Body>
     </View>
   );
 }

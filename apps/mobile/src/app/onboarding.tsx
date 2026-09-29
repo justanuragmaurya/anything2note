@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { interpolate, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, type SharedValue } from "react-native-reanimated";
 import { ArtPlaceholder, Body, Button, Display, Eyebrow, PressableScale, Rise, SerifAccent, type ArtId } from "@/components/ui";
-import { useSession } from "@/lib/session";
+import { usePreferences } from "@/lib/preferences";
 import { palette } from "@/theme";
 
 type Page = { art: ArtId; eyebrow: string; before: string; accent: string; after: string; body: string };
@@ -16,7 +16,7 @@ const PAGES: Page[] = [
     before: "Record, upload or paste ",
     accent: "anything",
     after: ".",
-    body: "Meetings, lectures, YouTube links, PDFs, whiteboard photos. If it has words, it becomes notes.",
+    body: "Lectures you record in class, PDFs, slides, web articles, whiteboard photos. If it has words, it becomes notes.",
   },
   {
     art: "onboarding-2",
@@ -24,7 +24,7 @@ const PAGES: Page[] = [
     before: "Notes shaped for ",
     accent: "what it is",
     after: ".",
-    body: "Minutes and action items for meetings. Flashcards and quizzes for lectures. Seven note types in all.",
+    body: "Detailed notes, flashcards and deadlines for your lectures. Q&A breakdowns for interviews. Six note types in all.",
   },
   {
     art: "onboarding-3",
@@ -51,7 +51,7 @@ function Dot({ i, x, width }: { i: number; x: SharedValue<number>; width: number
 export default function Onboarding() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const { finishOnboarding } = useSession();
+  const { finishOnboarding } = usePreferences();
   const x = useSharedValue(0);
   const [page, setPage] = useState(0);
   const ref = useRef<ScrollView>(null);

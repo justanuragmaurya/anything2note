@@ -73,7 +73,7 @@ export function Navbar() {
             Sign in
           </Link>
           <Link href="/sign-in?next=/app/new" className="btn btn-red btn-sm">
-            Start free
+            Try free
             <ArrowUpRight className="btn-arrow size-3.5" />
           </Link>
         </div>
@@ -110,7 +110,7 @@ export function Navbar() {
         </ul>
         <div className="mt-4 flex flex-col gap-2">
           <Link href="/sign-in?next=/app/new" className="btn btn-red w-full">
-            Start free
+            Try free
           </Link>
           <Link href="/sign-in" className="btn btn-ghost w-full">
             Sign in

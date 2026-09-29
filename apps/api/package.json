@@ -2,14 +2,30 @@
   "name": "api",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
+    "dev": "wrangler dev --ip 0.0.0.0",
     "deploy": "wrangler deploy --minify",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "wrangler d1 migrations apply a2n-dev --local",
+    "db:migrate:remote": "wrangler d1 migrations apply a2n-dev --remote"
   },
   "dependencies": {
-    "hono": "^4.13.9"
+    "@a2n/shared": "workspace:*",
+    "@better-auth/drizzle-adapter": "1.7.6",
+    "@better-auth/expo": "1.7.6",
+    "@mozilla/readability": "^0.6.0",
+    "aws4fetch": "^1.0.20",
+    "better-auth": "1.7.6",
+    "dodopayments": "^2.52.0",
+    "drizzle-orm": "0.45.3",
+    "fflate": "^0.8.3",
+    "hono": "^4.13.9",
+    "linkedom": "^0.18.13",
+    "unpdf": "^1.8.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
+    "drizzle-kit": "0.31.11",
     "wrangler": "^4.110.0"
   }
 }

@@ -1,6 +1,6 @@
 import "../global.css";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Platform } from "react-native";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
@@ -8,7 +8,10 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { SessionProvider } from "@/lib/session";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { authClient } from "@/lib/auth-client";
+import { PreferencesProvider } from "@/lib/preferences";
+import { queryClient } from "@/lib/queries";
 import { fontAssets } from "@/theme/fonts";
 import { palette } from "@/theme";
 
@@ -17,49 +20,64 @@ SplashScreen.setOptions({ duration: 300, fade: true });
 
 export default function RootLayout() {
   const [loaded, error] = useFonts(fontAssets);
+  const { data: session, isPending } = authClient.useSession();
+  // `isPending` flips back on while a signed-out session refetches (e.g. on app focus), so only
+  // the first answer gates the tree; unmounting the Stack later would reset the sign-in screen.
+  const [authReady, setAuthReady] = useState(false);
+  const fontsReady = loaded || !!error;
+  const signedIn = !!session;
+  // A session cached in SecureStore counts as an answer, so returning users skip the wait.
+  if (!authReady && (!isPending || signedIn)) setAuthReady(true);
 
   useEffect(() => {
     void SystemUI.setBackgroundColorAsync(palette.paper);
   }, []);
 
   useEffect(() => {
-    if (loaded || error) SplashScreen.hide();
-  }, [loaded, error]);
+    if (fontsReady && authReady) SplashScreen.hide();
+  }, [fontsReady, authReady]);
 
-  // Keep the splash up until DM Sans / Instrument Serif / JetBrains Mono are ready.
-  if (!loaded && !error) return null;
+  // Keep the splash up until the fonts are ready and we know whether someone is signed in.
+  if (!fontsReady || !authReady) return null;
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: palette.paper }}>
-      <SessionProvider>
-        <StatusBar style="dark" />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: palette.paper },
-            animation: Platform.OS === "android" ? "fade_from_bottom" : "default",
-          }}
-        >
-          <Stack.Screen name="index" options={{ animation: "none" }} />
-          <Stack.Screen name="onboarding" options={{ animation: "fade", gestureEnabled: false }} />
-          <Stack.Screen name="sign-in" options={{ animation: "fade", gestureEnabled: false }} />
-          <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
-          <Stack.Screen name="item/[id]" options={{ contentStyle: { backgroundColor: palette.night } }} />
-          <Stack.Screen
-            name="new/type"
-            options={{
-              presentation: "formSheet",
-              sheetAllowedDetents: [0.82, 1],
-              sheetGrabberVisible: true,
-              sheetCornerRadius: 34,
+      <QueryClientProvider client={queryClient}>
+        <PreferencesProvider>
+          <StatusBar style="dark" />
+          <Stack
+            screenOptions={{
+              headerShown: false,
               contentStyle: { backgroundColor: palette.paper },
+              animation: Platform.OS === "android" ? "fade_from_bottom" : "default",
             }}
-          />
-          <Stack.Screen name="new/outputs" />
-          <Stack.Screen name="new/progress" options={{ gestureEnabled: false }} />
-          <Stack.Screen name="paywall" options={{ presentation: "modal", contentStyle: { backgroundColor: palette.night } }} />
-        </Stack>
-      </SessionProvider>
+          >
+            {/* When a guard flips (sign-in, sign-out) the router falls back to index, which picks the next screen. */}
+            <Stack.Screen name="index" options={{ animation: "none" }} />
+            <Stack.Protected guard={!signedIn}>
+              <Stack.Screen name="onboarding" options={{ animation: "fade", gestureEnabled: false }} />
+              <Stack.Screen name="sign-in" options={{ animation: "fade", gestureEnabled: false }} />
+            </Stack.Protected>
+            <Stack.Protected guard={signedIn}>
+              <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
+              <Stack.Screen name="item/[id]" options={{ contentStyle: { backgroundColor: palette.night } }} />
+              <Stack.Screen
+                name="new/type"
+                options={{
+                  presentation: "formSheet",
+                  sheetAllowedDetents: [0.82, 1],
+                  sheetGrabberVisible: true,
+                  sheetCornerRadius: 34,
+                  contentStyle: { backgroundColor: palette.paper },
+                }}
+              />
+              <Stack.Screen name="new/outputs" />
+              <Stack.Screen name="new/progress" options={{ gestureEnabled: false }} />
+              <Stack.Screen name="paywall" options={{ presentation: "modal", contentStyle: { backgroundColor: palette.night } }} />
+            </Stack.Protected>
+          </Stack>
+        </PreferencesProvider>
+      </QueryClientProvider>
     </GestureHandlerRootView>
   );
 }

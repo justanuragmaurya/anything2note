@@ -1,65 +1,65 @@
-import { StyleSheet, View } from "react-native";
-import { Body, Eyebrow, Icon, Label, SerifAccent, TimestampChip } from "@/components/ui";
-import type { OutputContent, Stamped } from "@/lib/mock/types";
-import { palette } from "@/theme";
+import { StyleSheet, Text, View, type TextStyle } from "react-native";
+import type { Anchor, OutputData, OutputKey } from "@a2n/shared";
+import { AnchorChip, Body, Eyebrow, Label, SerifAccent } from "@/components/ui";
+import { fontFamily, palette } from "@/theme";
 
-type Of<K extends OutputContent["kind"]> = Extract<OutputContent, { kind: K }>;
+type Of<K extends OutputData["type"]> = Extract<OutputData, { type: K }>;
 
-export function Minutes({ data }: { data: Of<"minutes"> }) {
+/** Inline `**bold**` and `` `code` `` from the model, rendered instead of shown as symbols. */
+export function Rich({ text, style }: { text: string; style?: TextStyle }) {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
   return (
-    <View style={{ gap: 10 }}>
-      <View style={styles.metaRow}>
-        {data.meta.map((m) => (
-          <Eyebrow key={m}>{m}</Eyebrow>
-        ))}
-      </View>
-      {data.items.map((m, i) => (
-        <View key={m.title} style={styles.box}>
-          <View style={styles.between}>
-            <Label style={{ flex: 1 }}>
-              <Label style={{ color: palette.muted }}>{i + 1}. </Label>
-              {m.title}
-            </Label>
-            <TimestampChip at={m.at} />
-          </View>
-          <Body style={{ marginTop: 6, fontSize: 14 }}>{m.body}</Body>
-        </View>
-      ))}
+    <Body style={style}>
+      {parts.map((p, i) =>
+        p.startsWith("**") && p.endsWith("**") ? (
+          <Text key={i} style={{ fontFamily: fontFamily.sansMedium, color: palette.ink }}>
+            {p.slice(2, -2)}
+          </Text>
+        ) : p.startsWith("`") && p.endsWith("`") ? (
+          <Text key={i} style={styles.code}>
+            {p.slice(1, -1)}
+          </Text>
+        ) : (
+          p
+        ),
+      )}
+    </Body>
+  );
+}
+
+function Bullet({ text }: { text: string }) {
+  return (
+    <View style={styles.bullet}>
+      <View style={styles.dot} />
+      <Rich text={text} style={{ flex: 1, fontSize: 14 }} />
     </View>
   );
 }
 
-export function Decisions({ data }: { data: Of<"decisions"> }) {
-  return (
-    <View style={{ gap: 8 }}>
-      {data.items.map((d) => (
-        <View key={d.text} style={[styles.between, styles.decision]}>
-          <View style={{ flexDirection: "row", gap: 8, flex: 1, alignItems: "center" }}>
-            <Icon name="check" size={14} color={palette.red600} weight="bold" />
-            <Body style={{ color: palette.ink, fontSize: 14, flex: 1 }}>{d.text}</Body>
-          </View>
-          {d.at !== undefined ? <TimestampChip at={d.at} /> : null}
-        </View>
-      ))}
-    </View>
-  );
+const BULLET = /^\s*(?:[-•*]|\d+[.)])\s+/;
+
+/** One body line: "- x" becomes a bullet, a line that is only "**x**" a sub-heading, else a paragraph. */
+function Line({ text }: { text: string }) {
+  if (BULLET.test(text)) return <Bullet text={text.replace(BULLET, "")} />;
+  const heading = /^\*\*([^*]+)\*\*:?$/.exec(text.trim());
+  if (heading) return <Label style={{ marginTop: 10 }}>{heading[1]}</Label>;
+  return <Rich text={text} style={{ marginTop: 6 }} />;
 }
 
 export function Notes({ data }: { data: Of<"notes"> }) {
   return (
     <View style={{ gap: 22 }}>
-      {data.sections.map((s) => (
-        <View key={s.heading}>
+      {data.sections.map((s, i) => (
+        <View key={`${i}-${s.heading}`}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <Label style={{ fontSize: 17 }}>{s.heading}</Label>
-            {s.at !== undefined ? <TimestampChip at={s.at} /> : null}
+            {s.anchor ? <AnchorChip anchor={s.anchor} /> : null}
           </View>
-          <Body style={{ marginTop: 6 }}>{s.body}</Body>
-          {s.bullets?.map((b) => (
-            <View key={b} style={styles.bullet}>
-              <View style={styles.dot} />
-              <Body style={{ flex: 1, fontSize: 14 }}>{b}</Body>
-            </View>
+          {s.body.map((b, j) => (
+            <Line key={j} text={b} />
+          ))}
+          {s.bullets?.map((b, j) => (
+            <Bullet key={`b${j}`} text={b} />
           ))}
         </View>
       ))}
@@ -67,64 +67,98 @@ export function Notes({ data }: { data: Of<"notes"> }) {
   );
 }
 
-export function Bullets({ data }: { data: { items: Stamped[] } }) {
+function Numbered({ items }: { items: { text: string; anchor?: Anchor; title?: string }[] }) {
   return (
     <View style={{ gap: 2 }}>
-      {data.items.map((b, i) => (
-        <View key={b.text} style={[styles.bulletRow, i > 0 && styles.rule]}>
+      {items.map((b, i) => (
+        <View key={i} style={[styles.bulletRow, i > 0 && styles.rule]}>
           <Eyebrow color={palette.red600} style={{ width: 22, marginTop: 3 }}>
             {String(i + 1).padStart(2, "0")}
           </Eyebrow>
-          <Body style={{ flex: 1, color: palette.ink }}>{b.text}</Body>
-          {b.at !== undefined ? <TimestampChip at={b.at} /> : null}
+          <View style={{ flex: 1, gap: 2 }}>
+            {b.title ? <Label>{b.title}</Label> : null}
+            <Rich text={b.text} style={{ color: palette.ink }} />
+          </View>
+          {b.anchor ? <AnchorChip anchor={b.anchor} /> : null}
         </View>
       ))}
     </View>
   );
 }
 
-export function Glossary({ data }: { data: Of<"glossary"> }) {
-  return (
-    <View style={{ gap: 10 }}>
-      {data.terms.map((t) => (
-        <View key={t.term} style={styles.box}>
-          <View style={styles.between}>
-            <SerifAccent upright color={palette.ink} size={21} style={{ flex: 1 }}>
-              {t.term}
-            </SerifAccent>
-            {t.at !== undefined ? <TimestampChip at={t.at} /> : null}
-          </View>
-          <Body style={{ marginTop: 4, fontSize: 14 }}>{t.def}</Body>
-        </View>
-      ))}
-    </View>
-  );
-}
+const TLDR = /^\s*TL;?DR:?\s*/i;
 
 export function Summary({ data }: { data: Of<"summary"> }) {
+  const tldr = data.tldr.replace(TLDR, "");
+  // The model sometimes repeats the TL;DR as the first point.
+  const points = data.points.map((p) => ({ ...p, text: p.text.replace(TLDR, "") })).filter((p) => p.text !== tldr);
   return (
-    <View style={styles.summary}>
-      <Eyebrow color={palette.red600}>TL;DR</Eyebrow>
-      <SerifAccent upright color={palette.ink} size={23} style={{ lineHeight: 30, marginTop: 8 }}>
-        {data.text}
-      </SerifAccent>
-      {data.at !== undefined ? (
-        <View style={{ marginTop: 12 }}>
-          <TimestampChip at={data.at} />
+    <View style={{ gap: 18 }}>
+      <View style={styles.summary}>
+        <Eyebrow color={palette.red600}>TL;DR</Eyebrow>
+        <SerifAccent upright color={palette.ink} size={23} style={{ lineHeight: 30, marginTop: 8 }}>
+          {tldr}
+        </SerifAccent>
+      </View>
+      {points.length ? <Numbered items={points} /> : null}
+    </View>
+  );
+}
+
+/** Outputs whose block text is code or maths, shown in mono. */
+const MONO: OutputKey[] = ["code_snippets", "key_formulas"];
+
+/**
+ * Glossaries, key points, checklists… Titled blocks render as cards (term + definition),
+ * untitled ones as a numbered list.
+ */
+export function Generic({ data, output }: { data: Of<"generic">; output: OutputKey }) {
+  const titled = data.blocks.some((b) => b.title);
+  const mono = MONO.includes(output);
+  return (
+    <View style={{ gap: 14 }}>
+      {data.intro ? <Rich text={data.intro} /> : null}
+      {!titled ? (
+        <Numbered items={data.blocks} />
+      ) : (
+        <View style={{ gap: 10 }}>
+          {data.blocks.map((b, i) => (
+            <View key={i} style={styles.box}>
+              <View style={styles.between}>
+                {b.title ? (
+                  <SerifAccent upright color={palette.ink} size={21} style={{ flex: 1 }}>
+                    {b.title}
+                  </SerifAccent>
+                ) : (
+                  <View style={{ flex: 1 }} />
+                )}
+                {b.anchor ? <AnchorChip anchor={b.anchor} /> : null}
+              </View>
+              {mono ? (
+                <View style={styles.codeBlock}>
+                  <Text selectable style={[styles.code, { backgroundColor: "transparent" }]}>
+                    {b.text}
+                  </Text>
+                </View>
+              ) : (
+                <Rich text={b.text} style={{ marginTop: 4, fontSize: 14 }} />
+              )}
+            </View>
+          ))}
         </View>
-      ) : null}
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  metaRow: { flexDirection: "row", flexWrap: "wrap", columnGap: 16, rowGap: 4, marginBottom: 4 },
   box: { borderRadius: 18, borderWidth: 1, borderColor: palette.line, padding: 14, backgroundColor: palette.card },
   between: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  decision: { padding: 14, borderRadius: 18, backgroundColor: "rgba(242,181,168,0.45)" },
   bullet: { flexDirection: "row", gap: 10, marginTop: 6, alignItems: "flex-start" },
   dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: palette.red500, marginTop: 9 },
   bulletRow: { flexDirection: "row", gap: 10, alignItems: "flex-start", paddingVertical: 12 },
   rule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.lineStrong },
   summary: { padding: 18, borderRadius: 6, backgroundColor: palette.paperGlow, borderWidth: 1, borderColor: palette.line },
+  code: { fontFamily: fontFamily.mono, fontSize: 13, color: palette.ink, backgroundColor: palette.panel },
+  codeBlock: { marginTop: 8, padding: 12, borderRadius: 12, backgroundColor: palette.panel },
 });

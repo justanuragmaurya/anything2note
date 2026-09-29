@@ -2,7 +2,7 @@
  * Mobile theme: re-exports the shared design tokens (packages/ui-tokens) and adds
  * the native-only bits (font family names per weight, letter-spacing helper).
  *
- * Colours used via NativeWind classes (`bg-paper`, `text-ink`, `bg-nt-meeting`) come from
+ * Colours used via NativeWind classes (`bg-paper`, `text-ink`, `bg-nt-lecture`) come from
  * tailwind.config.ts, which is generated from the same tokens.
  */
 import { gradients, motion, noteTypeColor, palette, radius, spacing, type } from "@a2n/ui-tokens";

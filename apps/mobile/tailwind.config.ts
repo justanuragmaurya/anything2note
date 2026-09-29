@@ -5,7 +5,7 @@ import nativewindPreset from "nativewind/preset";
 
 /**
  * Tailwind theme for NativeWind, generated from the shared design tokens.
- * Class names mirror the web (`bg-paper`, `text-ink`, `bg-red-500`, `bg-nt-meeting`, `bg-night`).
+ * Class names mirror the web (`bg-paper`, `text-ink`, `bg-red-500`, `bg-nt-lecture`, `bg-night`).
  */
 const config: Config = {
   content: ["./src/**/*.{ts,tsx}"],
@@ -42,7 +42,6 @@ const config: Config = {
         cream: palette.cream,
         nt: {
           lecture: palette.lecture,
-          meeting: palette.meeting,
           interview: palette.interview,
           podcast: palette.podcast,
           tutorial: palette.tutorial,

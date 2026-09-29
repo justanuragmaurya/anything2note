@@ -1,5 +1,5 @@
 import { Check, Quote } from "lucide-react";
-import { NOT_MENTIONED, type SampleBlock } from "@/lib/mock/marketing-samples";
+import { NOT_MENTIONED, TASK_KIND_LABELS, type SampleBlock } from "@/lib/mock/marketing-samples";
 import { AnchorChip } from "./anchor-chip";
 import { FlipCard } from "./flip-card";
 
@@ -69,7 +69,7 @@ function Block({ block, accent }: { block: SampleBlock; accent: string }) {
         </ol>
       );
 
-    case "actions":
+    case "tasks":
       return (
         <ul className="space-y-2">
           {block.items.map((a) => (
@@ -88,9 +88,11 @@ function Block({ block, accent }: { block: SampleBlock; accent: string }) {
                   {a.done && <span className="sr-only"> (done)</span>}
                 </p>
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
-                  <span className={muted(a.owner)}>
-                    <span className="not-italic text-muted">Owner · </span>
-                    {a.owner}
+                  <span
+                    className="rounded-full px-2 py-0.5 text-[11px] text-ink"
+                    style={{ background: `color-mix(in oklab, ${accent} 55%, transparent)` }}
+                  >
+                    {TASK_KIND_LABELS[a.kind]}
                   </span>
                   <span className={muted(a.due)}>
                     <span className="not-italic text-muted">Due · </span>
@@ -99,24 +101,6 @@ function Block({ block, accent }: { block: SampleBlock; accent: string }) {
                   {a.anchor && <AnchorChip anchor={a.anchor} />}
                 </div>
               </div>
-            </li>
-          ))}
-        </ul>
-      );
-
-    case "decisions":
-      return (
-        <ul className="space-y-2">
-          {block.items.map((d) => (
-            <li
-              key={d.text}
-              className="flex items-start justify-between gap-3 rounded-2xl p-4 text-sm text-ink"
-              style={{ background: `color-mix(in oklab, ${accent} 45%, transparent)` }}
-            >
-              <span className="flex gap-2">
-                <Check className="mt-0.5 size-4 shrink-0 text-red-600" /> {d.text}
-              </span>
-              {d.anchor && <AnchorChip anchor={d.anchor} />}
             </li>
           ))}
         </ul>

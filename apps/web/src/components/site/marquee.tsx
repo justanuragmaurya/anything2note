@@ -1,14 +1,14 @@
 const ITEMS = [
   "Calculus lectures",
-  "Sprint planning",
-  "Client calls",
+  "Recorded classes",
+  "Lab sessions",
   "Research papers",
   "Podcast episodes",
   "Whiteboard photos",
   "Slide decks",
   "User interviews",
   "Coding tutorials",
-  "Board meetings",
+  "Guest lectures",
   "Book chapters",
   "Webinars",
 ];

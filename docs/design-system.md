@@ -19,9 +19,9 @@ Source of truth for values: `packages/ui-tokens/src/index.ts` (mobile + shared) 
 | `night` / `night-2` / `night-3` | `#161212` / `#1e1918` / `#2a2321` | Cloudflare-style dark sections, footer, player |
 | `night-text` / `night-muted` / `night-line` | | Text and lines on night |
 | `cream` | `#fffbf5` | Text/buttons on red or night |
-| `nt-*` | lecture `#f3dc8c`, meeting `#f2b5a8`, interview `#c9c3ec`, podcast `#b9d7c4`, tutorial `#a9c8ef`, reading `#e9c9a4`, general `#e3ddd4` | Note-type colour coding: cards, chips, tabs |
+| `nt-*` | lecture `#f3dc8c`, interview `#c9c3ec`, podcast `#b9d7c4`, tutorial `#a9c8ef`, reading `#e9c9a4`, general `#e3ddd4` | Note-type colour coding: cards, chips, tabs |
 
-Tailwind: `bg-paper`, `text-ink`, `border-line`, `bg-red-500`, `bg-night`, `bg-nt-meeting`, etc.
+Tailwind: `bg-paper`, `text-ink`, `border-line`, `bg-red-500`, `bg-night`, `bg-nt-lecture`, etc.
 
 ## Type
 

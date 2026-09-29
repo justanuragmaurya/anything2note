@@ -5,7 +5,7 @@ import { USE_CASES } from "@/lib/mock/marketing-use-cases";
 
 const SUGGESTIONS = [
   { href: "/pricing", label: "Pricing" },
-  { href: "/meeting-minutes", label: USE_CASES["meeting-minutes"].name },
+  { href: "/record-lectures", label: USE_CASES["record-lectures"].name },
   { href: "/lecture-notes", label: USE_CASES["lecture-notes"].name },
   { href: "/pdf-to-notes", label: USE_CASES["pdf-to-notes"].name },
 ];
@@ -27,7 +27,7 @@ export default function NotFound() {
             week&apos;s whiteboard.
           </p>
 
-          {/* The page's own action item */}
+          {/* The page's own task */}
           <div
             className="rise mx-auto mt-8 flex max-w-[400px] items-start gap-3 rounded-2xl border border-line bg-card p-4 text-left shadow-[0_18px_40px_-28px_rgba(60,20,10,0.45)] md:mx-0"
             style={{ animationDelay: "300ms" }}
@@ -35,10 +35,8 @@ export default function NotFound() {
             <span aria-hidden className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border border-line-strong" />
             <div>
               <p className="text-sm text-ink">Find the page you were looking for</p>
-              <p className="mt-1.5 flex flex-wrap gap-x-3 text-xs text-muted">
-                <span>
-                  Owner · <span className="italic">Not mentioned</span>
-                </span>
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+                <span className="rounded-full bg-nt-general/70 px-2 py-0.5 text-[11px] text-ink">Homework</span>
                 <span>
                   Due · <span className="italic">Not mentioned</span>
                 </span>
