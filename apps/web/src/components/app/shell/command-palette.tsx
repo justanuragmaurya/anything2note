@@ -3,36 +3,42 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CornerDownLeft, Plus, Search } from "lucide-react";
-import { LIBRARY } from "@/lib/mock/app-data";
-import { noteType } from "@/lib/mock/note-types";
+import type { LibraryItem } from "@a2n/shared";
+import { noteType } from "@/lib/note-types";
+import { useLibrary } from "@/lib/queries";
 import { Kbd, SourceIcon } from "../ui";
 import { NAV } from "./nav-items";
 
 type Entry = { id: string; group: string; label: string; hint?: string; href: string; icon: ReactNode };
 
-const ENTRIES: Entry[] = [
+const STATIC_ENTRIES: Entry[] = [
   { id: "new", group: "Actions", label: "New note", hint: "Add a source", href: "/app/new", icon: <Plus className="size-4" /> },
   ...NAV.map((n) => ({ id: n.href, group: "Go to", label: n.label, href: n.href, icon: <n.icon className="size-4" strokeWidth={1.8} /> })),
-  ...LIBRARY.filter((i) => i.status.state === "ready").map((i) => ({
-    id: i.id,
-    group: "Notes",
-    label: i.title,
-    hint: noteType(i.noteType).label,
-    href: `/app/i/${i.id}`,
-    icon: <SourceIcon kind={i.source} />,
-  })),
 ];
+
+const itemEntry = (i: LibraryItem): Entry => ({
+  id: i.id,
+  group: "Notes",
+  label: i.title,
+  hint: i.status.state === "ready" ? noteType(i.noteType).label : i.status.state === "failed" ? "Failed" : "Processing",
+  href: `/app/i/${i.id}`,
+  icon: <SourceIcon kind={i.source} />,
+});
 
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { data } = useLibrary();
 
   const results = useMemo(() => {
+    const entries = [...STATIC_ENTRIES, ...(data?.items ?? []).filter((i) => i.status.state !== "failed").map(itemEntry)];
     const s = q.trim().toLowerCase();
-    return s ? ENTRIES.filter((e) => `${e.label} ${e.hint ?? ""}`.toLowerCase().includes(s)) : ENTRIES;
-  }, [q]);
+    return s
+      ? entries.filter((e) => `${e.label} ${e.hint ?? ""} ${data?.items.find((i) => i.id === e.id)?.sourceLabel ?? ""}`.toLowerCase().includes(s))
+      : entries;
+  }, [q, data]);
 
   useEffect(() => {
     if (!open) return;

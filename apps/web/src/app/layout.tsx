@@ -28,7 +28,7 @@ export const metadata: Metadata = {
     template: "%s · anything2note",
   },
   description:
-    "Drop in a YouTube link, a meeting recording, a PDF, slides or a whiteboard photo. Get detailed notes, minutes, action items, flashcards and quizzes — plus an AI assistant for every item.",
+    "Record a lecture in class, or drop in a YouTube link, a PDF, slides or a whiteboard photo. Get detailed notes, flashcards, quizzes and every deadline mentioned — plus an AI assistant for every item.",
   openGraph: {
     type: "website",
     siteName: "anything2note",

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { QueryProvider } from "@/components/app/query-provider";
 import { AppShell } from "@/components/app/shell/app-shell";
 
 export const metadata: Metadata = {
@@ -7,5 +8,9 @@ export const metadata: Metadata = {
 };
 
 export default function AppLayout({ children }: LayoutProps<"/app">) {
-  return <AppShell>{children}</AppShell>;
+  return (
+    <QueryProvider>
+      <AppShell>{children}</AppShell>
+    </QueryProvider>
+  );
 }

@@ -1,132 +1,88 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
-import { ArrowUpRight, CalendarDays, Download, UserRound } from "lucide-react";
+import { useState } from "react";
+import { AlertCircle, ArrowUpRight, CalendarDays, Download, Loader2, RotateCcw } from "lucide-react";
+import type { TrackedTask } from "@a2n/shared";
 import { SlidingTabs } from "@/components/ui/sliding-tabs";
 import { Art } from "@/components/ui/art";
-import { ALL_ACTIONS, LIBRARY, TODAY_ISO, fmtDue, relativeDate, type TrackedAction } from "@/lib/mock/app-data";
-import { noteType } from "@/lib/mock/note-types";
+import { api, errorMessage } from "@/lib/api";
+import { download, tasksCsv } from "@/lib/export";
+import { TASK_KIND_LABELS, fmtDue, relativeDate, todayIso } from "@/lib/format";
+import { noteType } from "@/lib/note-types";
+import { keys, useInvalidate, useTasks } from "@/lib/queries";
 import { AnchorChip, PageHeader, TickBox } from "../ui";
 
-type Group = "meeting" | "due";
+type Group = "lecture" | "due";
 type Filter = "open" | "done" | "all";
 
-const dayDiff = (iso: string) => Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${TODAY_ISO}T00:00:00Z`)) / 86_400_000);
+const dayDiff = (iso: string, today: string) => Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
 
-function dueBucket(a: TrackedAction): { key: string; label: string; order: number } {
+function dueBucket(a: TrackedTask, today: string): { key: string; label: string; order: number } {
   if (!a.due) return { key: "none", label: "No due date", order: 4 };
-  const d = dayDiff(a.due);
+  const d = dayDiff(a.due, today);
   if (d < 0) return { key: "overdue", label: "Overdue", order: 0 };
   if (d === 0) return { key: "today", label: "Today", order: 1 };
   if (d <= 7) return { key: "week", label: "This week", order: 2 };
   return { key: "later", label: "Later", order: 3 };
 }
 
-function OwnerField({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value ?? "");
-  if (editing)
-    return (
-      <input
-        autoFocus
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          onChange(draft.trim() || null);
-          setEditing(false);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-          if (e.key === "Escape") setEditing(false);
-        }}
-        placeholder="Owner"
-        aria-label="Owner"
-        className="w-28 rounded-full border border-red-300 bg-card px-2.5 py-0.5 text-xs focus:shadow-[0_0_0_3px_var(--red-50)] focus:outline-none"
-      />
-    );
+function DueLabel({ value, done, today }: { value: string | null; done: boolean; today: string }) {
+  const overdue = !done && value !== null && dayDiff(value, today) < 0;
   return (
-    <button
-      type="button"
-      onClick={() => {
-        setDraft(value ?? "");
-        setEditing(true);
-      }}
-      className="inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5 transition-colors hover:bg-panel"
-      aria-label={`Owner: ${value ?? "not mentioned"}. Edit`}
-    >
-      <UserRound className="size-3.5 text-muted" aria-hidden />
-      {value ?? <span className="text-muted italic">Not mentioned</span>}
-    </button>
-  );
-}
-
-function DueField({ value, done, onChange }: { value: string | null; done: boolean; onChange: (v: string | null) => void }) {
-  const ref = useRef<HTMLInputElement>(null);
-  const overdue = !done && value !== null && dayDiff(value) < 0;
-  return (
-    <span className="relative inline-flex items-center">
-      <button
-        type="button"
-        onClick={() => {
-          const el = ref.current;
-          if (!el) return;
-          if (typeof el.showPicker === "function") el.showPicker();
-          else el.focus();
-        }}
-        className={`inline-flex items-center gap-1.5 rounded-full px-1.5 py-0.5 transition-colors hover:bg-panel ${overdue ? "text-red-600" : ""}`}
-        aria-label={`Due: ${value ? fmtDue(value) : "not mentioned"}. Edit`}
-      >
-        <CalendarDays className={`size-3.5 ${overdue ? "text-red-500" : "text-muted"}`} aria-hidden />
-        {value ? fmtDue(value) : <span className="text-muted italic">Not mentioned</span>}
-        {overdue && <span className="font-mono text-[9px] tracking-[0.1em] uppercase">overdue</span>}
-      </button>
-      <input
-        ref={ref}
-        type="date"
-        value={value ?? ""}
-        onChange={(e) => onChange(e.target.value || null)}
-        tabIndex={-1}
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-0"
-      />
+    <span className={`inline-flex items-center gap-1.5 px-1.5 py-0.5 ${overdue ? "text-red-600" : ""}`}>
+      <CalendarDays className={`size-3.5 ${overdue ? "text-red-500" : "text-muted"}`} aria-hidden />
+      <span className="sr-only">Due:</span>
+      {value ? fmtDue(value) : <span className="text-muted italic">Not mentioned</span>}
+      {overdue && <span className="font-mono text-[9px] tracking-[0.1em] uppercase">overdue</span>}
     </span>
   );
 }
 
-export function ActionsView() {
-  const [items, setItems] = useState<TrackedAction[]>(ALL_ACTIONS);
-  const [group, setGroup] = useState<Group>("meeting");
+export function TasksView() {
+  const { data, error, isPending, refetch, isFetching } = useTasks();
+  const invalidate = useInvalidate();
+  const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const [group, setGroup] = useState<Group>("lecture");
   const [filter, setFilter] = useState<Filter>("open");
   const [leaving, setLeaving] = useState<Record<string, boolean>>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const today = todayIso();
+  const items: TrackedTask[] = (data?.tasks ?? []).map((a) => (a.id in overrides ? { ...a, done: overrides[a.id]! } : a));
 
-  const update = (id: string, patch: Partial<TrackedAction>) => setItems((xs) => xs.map((a) => (a.id === id ? { ...a, ...patch } : a)));
-
-  const toggle = (a: TrackedAction) => {
-    update(a.id, { done: !a.done });
+  const toggle = (a: TrackedTask) => {
+    const done = !a.done;
+    setSaveError(null);
+    setOverrides((o) => ({ ...o, [a.id]: done }));
     if (filter !== "all") {
       setLeaving((l) => ({ ...l, [a.id]: true }));
       setTimeout(() => setLeaving((l) => ({ ...l, [a.id]: false })), 900);
     }
+    api
+      .updateTask(a.id, done)
+      .then(() => invalidate(keys.tasks, keys.item(a.itemId)))
+      .catch((e: unknown) => {
+        setOverrides((o) => ({ ...o, [a.id]: !done }));
+        setSaveError(errorMessage(e));
+      });
   };
 
-  const visible = (a: TrackedAction) => leaving[a.id] || filter === "all" || (filter === "open" ? !a.done : a.done);
+  const visible = (a: TrackedTask) => leaving[a.id] || filter === "all" || (filter === "open" ? !a.done : a.done);
   const openCount = items.filter((a) => !a.done).length;
   const doneCount = items.length - openCount;
   const shownCount = items.filter(visible).length;
 
-  const groups: { key: string; label: string; sub?: string; href?: string; color?: string; items: TrackedAction[] }[] = [];
-  if (group === "meeting") {
+  const groups: { key: string; label: string; sub?: string; href?: string; color?: string; items: TrackedTask[] }[] = [];
+  if (group === "lecture") {
     for (const a of items) {
-      let g = groups.find((x) => x.key === a.meetingId);
+      let g = groups.find((x) => x.key === a.itemId);
       if (!g) {
-        const lib = LIBRARY.find((i) => i.id === a.meetingId);
         g = {
-          key: a.meetingId,
-          label: a.meetingTitle,
-          sub: relativeDate(a.meetingDate),
-          href: `/app/i/${a.meetingId}`,
-          color: lib ? noteType(lib.noteType).color : undefined,
+          key: a.itemId,
+          label: a.itemTitle,
+          sub: relativeDate(a.itemDate),
+          href: `/app/i/${a.itemId}`,
+          color: noteType(a.noteType).color,
           items: [],
         };
         groups.push(g);
@@ -134,9 +90,9 @@ export function ActionsView() {
       g.items.push(a);
     }
   } else {
-    const sorted = [...items].sort((x, y) => dueBucket(x).order - dueBucket(y).order || (x.due ?? "").localeCompare(y.due ?? ""));
+    const sorted = [...items].sort((x, y) => dueBucket(x, today).order - dueBucket(y, today).order || (x.due ?? "").localeCompare(y.due ?? ""));
     for (const a of sorted) {
-      const b = dueBucket(a);
+      const b = dueBucket(a, today);
       let g = groups.find((x) => x.key === b.key);
       if (!g) {
         g = { key: b.key, label: b.label, items: [] };
@@ -149,17 +105,19 @@ export function ActionsView() {
   return (
     <div className="mx-auto max-w-[920px]">
       <PageHeader
-        eyebrow={`Action items · ${openCount} open`}
+        eyebrow={`Tasks · ${openCount} open`}
         title={
           <>
-            Everything you <span className="serif-accent text-red-500">promised</span>.
+            Everything that&rsquo;s <span className="serif-accent text-red-500">due</span>.
           </>
         }
-        sub="Pulled from every meeting. We only fill in owners and dates that were actually said."
+        sub="Homework, readings, projects and exam dates pulled from every lecture. We only fill in dates your lecturer actually said."
         actions={
-          <button type="button" className="btn btn-ghost btn-sm">
-            <Download className="size-3.5" /> Export CSV
-          </button>
+          items.length > 0 && (
+            <button type="button" onClick={() => download(`tasks-${today}.csv`, tasksCsv(items), "text/csv;charset=utf-8")} className="btn btn-ghost btn-sm">
+              <Download className="size-3.5" /> Export CSV
+            </button>
+          )
         }
       />
 
@@ -170,7 +128,7 @@ export function ActionsView() {
           size="sm"
           ariaLabel="Group by"
           items={[
-            { value: "meeting", label: "By meeting" },
+            { value: "lecture", label: "By lecture" },
             { value: "due", label: "By due date" },
           ]}
         />
@@ -188,14 +146,38 @@ export function ActionsView() {
         />
       </div>
 
-      {shownCount === 0 ? (
+      {saveError && (
+        <p className="rise mt-4 flex items-center gap-2 text-[13px] text-red-700" role="alert">
+          <AlertCircle className="size-4" /> Couldn’t save that: {saveError}
+        </p>
+      )}
+
+      {error && !data ? (
+        <div className="rise mt-8 flex flex-col items-center rounded-[28px] border border-dashed border-red-200 bg-red-50/60 px-6 py-12 text-center">
+          <AlertCircle className="size-6 text-red-500" />
+          <p className="mt-3 text-sm text-red-700">{errorMessage(error)}</p>
+          <button type="button" onClick={() => refetch()} disabled={isFetching} className="btn btn-ghost btn-sm mt-4">
+            {isFetching ? <Loader2 className="spin size-3.5" /> : <RotateCcw className="size-3.5" />} Try again
+          </button>
+        </div>
+      ) : isPending ? (
+        <div className="mt-6 space-y-3" aria-busy="true" aria-label="Loading tasks">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="skeleton h-16 rounded-[22px]" />
+          ))}
+        </div>
+      ) : shownCount === 0 ? (
         <div className="rise mt-8 flex flex-col items-center rounded-[28px] border border-dashed border-line-strong bg-card/60 px-6 py-14 text-center">
           <Art id="empty-actions" className="w-full max-w-[260px]" />
           <h2 className="mt-7 text-[26px] tracking-[-0.035em]">
             Nothing on your <span className="serif-accent text-red-500">plate</span>.
           </h2>
           <p className="mt-2 max-w-[40ch] text-sm text-ink-soft">
-            {filter === "done" ? "Tick something off and it lands here." : "Every action item is done. Enjoy it while it lasts."}
+            {items.length === 0
+              ? "Homework, readings and exam dates from your lectures will show up here."
+              : filter === "done"
+                ? "Tick something off and it lands here."
+                : "Every task is done. Enjoy it while it lasts."}
           </p>
         </div>
       ) : (
@@ -238,12 +220,12 @@ export function ActionsView() {
                               <div className="min-w-0 flex-1">
                                 <p className={`text-[14px] transition-all duration-300 ${a.done ? "text-muted line-through decoration-red-400/70" : "text-ink"}`}>{a.task}</p>
                                 <div className="mt-1.5 -ml-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-soft">
-                                  <OwnerField value={a.owner} onChange={(owner) => update(a.id, { owner })} />
-                                  <DueField value={a.due} done={a.done} onChange={(due) => update(a.id, { due })} />
-                                  <AnchorChip anchor={a.anchor} itemId={a.meetingId} />
+                                  <span className="rounded-full bg-panel px-2 py-0.5 font-mono text-[10px] tracking-[0.08em] text-ink uppercase">{TASK_KIND_LABELS[a.kind]}</span>
+                                  <DueLabel value={a.due} done={a.done} today={today} />
+                                  {a.anchor && <AnchorChip anchor={a.anchor} itemId={a.itemId} />}
                                   {group === "due" && (
-                                    <Link href={`/app/i/${a.meetingId}`} className="truncate text-muted hover:text-ink">
-                                      · {a.meetingTitle}
+                                    <Link href={`/app/i/${a.itemId}`} className="truncate text-muted hover:text-ink">
+                                      · {a.itemTitle}
                                     </Link>
                                   )}
                                 </div>

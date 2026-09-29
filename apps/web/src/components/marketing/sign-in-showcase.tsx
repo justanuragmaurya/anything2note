@@ -5,22 +5,22 @@ import { Check } from "lucide-react";
 import { CornerFrame } from "@/components/ui/corner-frame";
 import { AnchorChip } from "./anchor-chip";
 
-const SLIDES = ["Minutes", "Flashcard", "Action item"] as const;
+const SLIDES = ["Class notes", "Flashcard", "Tasks"] as const;
 const INTERVAL = 3600;
 
-function MinutesSlide() {
+function NotesSlide() {
   return (
     <div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[10px] tracking-[0.12em] text-night-muted uppercase">
-        <span>Q4 planning sync</span>
-        <span>47 min</span>
-        <span>4 speakers</span>
+        <span>ECON 102 · Lecture 14</span>
+        <span>55 min</span>
+        <span>Recorded in class</span>
       </div>
       <ol className="mt-5 space-y-3">
         {[
-          { t: "Roadmap cut-line", b: "Bulk export ships CSV-only in Q4.", at: 192 },
-          { t: "Onboarding drop-off", b: "Invite step becomes skippable.", at: 880 },
-          { t: "Support hiring", b: "One hire now instead of two in January.", at: 1865 },
+          { t: "What elasticity measures", b: "% change in quantity demanded ÷ % change in price.", at: 110 },
+          { t: "The midpoint method", b: "₹40 → ₹60, 100 → 60 cups: PED = −1.25, so elastic.", at: 760 },
+          { t: "Elasticity and revenue", b: "Elastic demand: a price cut raises total revenue.", at: 2112 },
         ].map((m, i) => (
           <li key={m.t} className="rounded-xl border border-night-line bg-night-2 p-3.5">
             <div className="flex items-center justify-between gap-3">
@@ -57,7 +57,7 @@ function FlashcardSlide() {
   );
 }
 
-function ActionSlide() {
+function TasksSlide() {
   const [ticked, setTicked] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setTicked(true), 1100);
@@ -66,8 +66,9 @@ function ActionSlide() {
   return (
     <div className="space-y-2.5">
       {[
-        { task: "Scope CSV-only export and share estimate", owner: "Kabir", due: "Fri, 25 Sep", at: 620, live: true },
-        { task: "Open support role and draft JD", owner: "Not mentioned", due: "Not mentioned", at: 2020, live: false },
+        { task: "Read Mankiw ch. 5, sections 5.1–5.2", kind: "Reading", due: "Tue, 29 Sep", at: 3182, live: true },
+        { task: "Problem set 5: elasticity questions 1–8", kind: "Homework", due: "Fri, 2 Oct", at: 3130, live: false },
+        { task: "Pick a market for the group presentation", kind: "Project", due: "Not mentioned", at: 3260, live: false },
       ].map((a) => {
         const done = a.live && ticked;
         return (
@@ -82,7 +83,7 @@ function ActionSlide() {
             <div className="min-w-0">
               <p className={`text-[14px] transition-colors duration-300 ${done ? "text-night-muted line-through" : ""}`}>{a.task}</p>
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12px] text-night-muted">
-                <span className={a.owner === "Not mentioned" ? "italic" : ""}>Owner · {a.owner}</span>
+                <span className="rounded-full bg-nt-lecture/20 px-2 py-0.5 text-[11px] text-nt-lecture">{a.kind}</span>
                 <span className={a.due === "Not mentioned" ? "italic" : ""}>Due · {a.due}</span>
                 <AnchorChip anchor={{ kind: "time", at: a.at }} tone="night" />
               </div>
@@ -132,9 +133,9 @@ export function SignInShowcase() {
             </div>
             <div className="min-h-[330px] p-5" aria-live="off">
               <div key={i} className="rise">
-                {i === 0 && <MinutesSlide />}
+                {i === 0 && <NotesSlide />}
                 {i === 1 && <FlashcardSlide />}
-                {i === 2 && <ActionSlide />}
+                {i === 2 && <TasksSlide />}
               </div>
             </div>
           </CornerFrame>
@@ -165,7 +166,7 @@ export function SignInShowcase() {
         </div>
 
         <p className="rise mt-10 text-[14px] leading-relaxed text-night-muted" style={{ animationDelay: "320ms" }}>
-          Minutes, flashcards, action items, quizzes and more, from recordings, PDFs, links and photos. Every line links back to
+          Detailed notes, flashcards, quizzes and every deadline mentioned, from class recordings, PDFs, links and photos. Every line links back to
           where it came from.
         </p>
       </div>

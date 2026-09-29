@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
-export type TabItem<T extends string> = { value: T; label: ReactNode; icon?: ReactNode };
+export type TabItem<T extends string> = { value: T; label: ReactNode; icon?: ReactNode; disabled?: boolean };
 
 type Props<T extends string> = {
   items: TabItem<T>[];
@@ -86,8 +86,9 @@ export function SlidingTabs<T extends string>({
             role="tab"
             aria-selected={active}
             data-value={item.value}
+            disabled={item.disabled}
             onClick={() => onChange(item.value)}
-            className={`relative z-10 inline-flex items-center gap-2 rounded-full font-medium whitespace-nowrap transition-colors duration-200 ${
+            className={`relative z-10 inline-flex items-center gap-2 rounded-full font-medium whitespace-nowrap transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${
               size === "sm" ? "px-3 py-1.5 text-[13px]" : "px-4 py-2 text-sm"
             } ${active ? t.active : t.idle}`}
           >

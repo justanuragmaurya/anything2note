@@ -93,7 +93,7 @@ export const PRIVACY: LegalDoc = {
         "We keep your content for as long as your account is active, unless you delete it sooner.",
         {
           list: [
-            "Auto-delete originals: when enabled (on by default for meetings), original files are deleted right after processing. Your notes and transcripts remain.",
+            "Auto-delete originals: when enabled (on by default for class recordings), original files are deleted right after processing. Your notes and transcripts remain.",
             "Deleting an item removes its original file, transcript and outputs from our active systems immediately and from backups within [30] days.",
             "Deleting your account removes all your content within [30] days. We keep limited billing records for as long as tax law requires (currently up to 8 years in India).",
           ],
@@ -223,7 +223,7 @@ export const TERMS: LegalDoc = {
       blocks: [
         "You keep all rights in the files, recordings, links and text you submit (\"your content\") and in the outputs generated for you.",
         "You give us a limited licence to host, copy, process and transmit your content only as needed to provide the Service to you, including sending it to our sub-processors. This licence ends when you delete the content, except for residual backups kept for up to [30] days.",
-        "You're responsible for having the rights and permissions needed for your content, including copyright and the consent of people you record.",
+        "You're responsible for having the rights and permissions needed for your content, including copyright and the consent of people you record, such as your lecturer's or institution's permission to record a class.",
       ],
     },
     {
@@ -247,7 +247,7 @@ export const TERMS: LegalDoc = {
       id: "ai-outputs",
       heading: "AI outputs",
       blocks: [
-        "Notes, minutes, flashcards and other outputs are generated automatically and can be incomplete or wrong. We design them to cite their sources and to say \"Not mentioned\" rather than guess, but you should check anything important against the original before relying on it.",
+        "Notes, tasks, flashcards and other outputs are generated automatically and can be incomplete or wrong. We design them to cite their sources and to say \"Not mentioned\" rather than guess, but you should check anything important against the original before relying on it.",
         "Outputs are not professional advice: medical, legal, financial or otherwise.",
       ],
     },

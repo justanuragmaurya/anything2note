@@ -1,4 +1,4 @@
-import type { NoteTypeKey } from "@/lib/mock/note-types";
+import type { NoteTypeKey } from "@/lib/note-types";
 
 /** Abstract editorial motif per note type (Yield Theory report-card style). */
 export function NoteTypeShape({ type, className = "" }: { type: NoteTypeKey; className?: string }) {
@@ -12,14 +12,6 @@ export function NoteTypeShape({ type, className = "" }: { type: NoteTypeKey; cla
         <svg {...common}>
           {Array.from({ length: 14 }).map((_, i) => (
             <rect key={i} x={14 + i * 15.5} y={12 + (i % 2) * 6} width="8" height={66 - (i % 2) * 6} rx="4" fill={d} />
-          ))}
-        </svg>
-      );
-    case "meeting":
-      return (
-        <svg {...common}>
-          {[0, 1, 2, 3, 4].map((i) => (
-            <circle key={i} cx={46 + i * 37} cy={45} r={27} fill="none" stroke={c} strokeWidth="7" />
           ))}
         </svg>
       );

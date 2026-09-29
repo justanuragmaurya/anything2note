@@ -1,12 +1,12 @@
 import { BarChart3, Layers, ListChecks, Library, Settings, type LucideIcon } from "lucide-react";
-import { DUE_CARDS } from "@/lib/mock/app-data";
 
-export type NavItem = { href: string; label: string; short: string; icon: LucideIcon; badge?: number };
+/** `badge` shows the live due-card count (see AppShell). */
+export type NavItem = { href: string; label: string; short: string; icon: LucideIcon; badge?: "due" };
 
 export const NAV: NavItem[] = [
   { href: "/app", label: "Library", short: "Library", icon: Library },
-  { href: "/app/actions", label: "Action items", short: "Actions", icon: ListChecks },
-  { href: "/app/review", label: "Review", short: "Review", icon: Layers, badge: DUE_CARDS.length },
+  { href: "/app/tasks", label: "Tasks", short: "Tasks", icon: ListChecks },
+  { href: "/app/review", label: "Review", short: "Review", icon: Layers, badge: "due" },
   { href: "/app/stats", label: "Stats", short: "Stats", icon: BarChart3 },
   { href: "/app/settings", label: "Settings", short: "Settings", icon: Settings },
 ];

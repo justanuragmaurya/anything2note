@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { ArrowUpRight, Sparkles } from "lucide-react";
-import { NOTE_TYPES, OUTPUT_LABELS } from "@/lib/mock/note-types";
+import { NOTE_TYPES, OUTPUT_LABELS } from "@/lib/note-types";
 import { NoteTypeShape } from "./note-type-shape";
 import { Reveal } from "@/components/ui/reveal";
 
 const SEO: Record<string, string> = {
-  lecture: "/lecture-notes",
-  meeting: "/meeting-minutes",
+  lecture: "/record-lectures",
   podcast: "/podcast-summary",
   reading: "/pdf-to-notes",
 };

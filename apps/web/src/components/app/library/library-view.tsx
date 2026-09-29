@@ -1,53 +1,153 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { Folder, FolderPlus, Layers, LayoutGrid, List, Search, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { AlertCircle, Folder, FolderPlus, Layers, LayoutGrid, List, Loader2, RotateCcw, Search, Trash2, X } from "lucide-react";
+import type { SourceKind } from "@a2n/shared";
 import { SlidingTabs } from "@/components/ui/sliding-tabs";
 import { Art } from "@/components/ui/art";
-import { DUE_CARDS, FOLDERS, LIBRARY, USER, type LibraryItem, type ProcessingStep, type SourceKind } from "@/lib/mock/app-data";
-import { NOTE_TYPES, type NoteTypeKey } from "@/lib/mock/note-types";
+import { api, errorMessage } from "@/lib/api";
+import { useCurrentUser } from "@/lib/auth-client";
+import { greeting } from "@/lib/format";
+import { NOTE_TYPES, type NoteTypeKey } from "@/lib/note-types";
+import { keys, useInvalidate, useLibrary } from "@/lib/queries";
 import { PageHeader, SourceIcon, inputCls } from "../ui";
-import { ItemCard, ItemRow } from "./item-card";
+import { ItemCard, ItemRow, type ItemActions } from "./item-card";
 
 type SourceGroup = "all" | "media" | "docs" | "text";
 const SOURCE_GROUPS: { value: SourceGroup; label: string; kinds: SourceKind[]; icon: SourceKind }[] = [
   { value: "all", label: "All sources", kinds: [], icon: "text" },
   { value: "media", label: "Media", kinds: ["youtube", "audio", "video", "recording"], icon: "audio" },
-  { value: "docs", label: "Documents", kinds: ["pdf", "slides", "image"], icon: "pdf" },
+  { value: "docs", label: "Documents", kinds: ["pdf", "docx", "slides", "image"], icon: "pdf" },
   { value: "text", label: "Text & web", kinds: ["text", "web"], icon: "web" },
 ];
 
-/** Advance processing items through extracting → transcribing → generating. */
-function nextStatus(item: LibraryItem): LibraryItem {
-  if (item.status.state !== "processing") return item;
-  const progress = Math.min(100, item.status.progress + 2 + (item.id.length % 3));
-  if (progress >= 100) return { ...item, status: { state: "ready" } };
-  const step: ProcessingStep = progress < 30 ? "extracting" : progress < 70 ? "transcribing" : "generating";
-  return { ...item, status: { state: "processing", step, progress } };
+function NewFolder({ onCreated }: { onCreated: (id: string) => void }) {
+  const invalidate = useInvalidate();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!open)
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-2xl px-3 py-2.5 text-[13px] text-muted transition-colors hover:text-ink"
+      >
+        <FolderPlus className="size-4" strokeWidth={1.7} /> New folder
+      </button>
+    );
+
+  const create = async () => {
+    const n = name.trim();
+    if (!n || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { folder } = await api.createFolder(n);
+      await invalidate(keys.library);
+      setName("");
+      setOpen(false);
+      onCreated(folder.id);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form
+      className="flex shrink-0 items-center gap-1.5"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void create();
+      }}
+    >
+      <input
+        autoFocus
+        value={name}
+        maxLength={60}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            setOpen(false);
+            setName("");
+            setError(null);
+          }
+        }}
+        placeholder="Folder name"
+        aria-label="Folder name"
+        className={`${inputCls} !w-44 !rounded-2xl !py-2`}
+      />
+      <button type="submit" disabled={!name.trim() || busy} className="btn btn-ink btn-sm">
+        {busy ? <Loader2 className="spin size-3.5" /> : "Create"}
+      </button>
+      <button type="button" onClick={() => setOpen(false)} aria-label="Cancel" className="grid size-8 place-items-center rounded-full text-muted hover:bg-panel hover:text-ink">
+        <X className="size-3.5" />
+      </button>
+      {error && <span className="text-[12px] whitespace-nowrap text-red-600">{error}</span>}
+    </form>
+  );
 }
 
-function greeting(): string {
-  return "Good morning";
+function LibrarySkeleton() {
+  return (
+    <div className="mt-8 grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-busy="true" aria-label="Loading library">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="rounded-[22px] border border-line bg-card p-4">
+          <div className="skeleton h-20 rounded-xl" />
+          <div className="skeleton mt-4 h-4 w-4/5 rounded-full" />
+          <div className="skeleton mt-2 h-3 w-1/2 rounded-full" />
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function LibraryView() {
-  const [items, setItems] = useState<LibraryItem[]>(LIBRARY);
+  const { firstName } = useCurrentUser();
+  const { data, error, isPending, refetch, isFetching } = useLibrary();
+  const invalidate = useInvalidate();
+  const items = useMemo(() => data?.items ?? [], [data]);
+  const folders = data?.folders ?? [];
   const [q, setQ] = useState("");
   const [types, setTypes] = useState<NoteTypeKey[]>([]);
   const [source, setSource] = useState<SourceGroup>("all");
   const [folder, setFolder] = useState("all");
   const [view, setView] = useState<"grid" | "list">("grid");
+  const [folderError, setFolderError] = useState<string | null>(null);
+  const [deletingFolder, setDeletingFolder] = useState(false);
+  const [now] = useState(() => Date.now());
 
-  const anyProcessing = items.some((i) => i.status.state === "processing");
-  useEffect(() => {
-    if (!anyProcessing) return;
-    const id = setInterval(() => setItems((xs) => xs.map(nextStatus)), 900);
-    return () => clearInterval(id);
-  }, [anyProcessing]);
+  const actions: ItemActions = {
+    onRetry: async (id) => {
+      await api.retrySource(id);
+      await invalidate(keys.library, keys.item(id));
+    },
+    onDelete: async (id) => {
+      await api.deleteSource(id);
+      await invalidate(keys.library, keys.tasks, keys.due);
+    },
+  };
 
-  const retry = (id: string) =>
-    setItems((xs) => xs.map((i) => (i.id === id ? { ...i, status: { state: "processing", step: "extracting", progress: 3 } } : i)));
+  const activeFolder = folders.find((f) => f.id === folder);
+  const deleteFolder = async () => {
+    if (!activeFolder || !window.confirm(`Delete the folder “${activeFolder.name}”? Its notes stay in your library.`)) return;
+    setDeletingFolder(true);
+    setFolderError(null);
+    try {
+      await api.deleteFolder(activeFolder.id);
+      setFolder("all");
+      await invalidate(keys.library);
+    } catch (e) {
+      setFolderError(errorMessage(e));
+    } finally {
+      setDeletingFolder(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -57,7 +157,7 @@ export function LibraryView() {
         (!s || `${i.title} ${i.sourceLabel}`.toLowerCase().includes(s)) &&
         (types.length === 0 || types.includes(i.noteType)) &&
         (kinds.length === 0 || kinds.includes(i.source)) &&
-        (folder === "all" || i.folder === folder),
+        (folder === "all" || i.folderId === folder),
     );
   }, [items, q, types, source, folder]);
 
@@ -70,27 +170,40 @@ export function LibraryView() {
   };
   const toggleType = (k: NoteTypeKey) => setTypes((ts) => (ts.includes(k) ? ts.filter((x) => x !== k) : [...ts, k]));
 
-  const thisWeek = items.filter((i) => i.createdAt > Date.parse("2026-09-21")).length;
+  const thisWeek = items.filter((i) => i.createdAt > now - 7 * 86_400_000).length;
+  const due = items.reduce((n, i) => n + i.flashcardsDue, 0);
 
   return (
     <div className="mx-auto max-w-[1180px]">
       <PageHeader
-        eyebrow={`Library · ${items.length} items`}
+        eyebrow={data ? `Library · ${items.length} ${items.length === 1 ? "item" : "items"}` : "Library"}
         title={
           <>
-            {greeting()}, <span className="serif-accent text-red-500">{USER.name}</span>.
+            {greeting()}
+            {firstName && (
+              <>
+                , <span className="serif-accent text-red-500">{firstName}</span>
+              </>
+            )}
+            .
           </>
         }
         sub={
-          <>
-            {thisWeek} new notes this week and {DUE_CARDS.length} flashcards waiting for you.
-          </>
+          !data ? null : items.length === 0 ? (
+            "Add a link, a recording or a PDF to make your first notes."
+          ) : (
+            <>
+              {thisWeek} new {thisWeek === 1 ? "note" : "notes"} this week and {due} {due === 1 ? "flashcard" : "flashcards"} waiting for you.
+            </>
+          )
         }
         actions={
-          <Link href="/app/review" className="btn btn-ghost btn-sm">
-            <Layers className="size-3.5" />
-            Review {DUE_CARDS.length} cards
-          </Link>
+          due > 0 && (
+            <Link href="/app/review" className="btn btn-ghost btn-sm">
+              <Layers className="size-3.5" />
+              Review {due} {due === 1 ? "card" : "cards"}
+            </Link>
+          )
         }
       />
 
@@ -163,9 +276,9 @@ export function LibraryView() {
 
         {/* Folders */}
         <div className="no-scrollbar -mx-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0">
-          {FOLDERS.map((f) => {
+          {[{ id: "all", name: "All items" }, ...folders].map((f) => {
             const on = folder === f.id;
-            const count = f.id === "all" ? items.length : items.filter((i) => i.folder === f.id).length;
+            const count = f.id === "all" ? items.length : items.filter((i) => i.folderId === f.id).length;
             return (
               <button
                 key={f.id}
@@ -182,10 +295,21 @@ export function LibraryView() {
               </button>
             );
           })}
-          <button type="button" className="inline-flex shrink-0 items-center gap-1.5 rounded-2xl px-3 py-2.5 text-[13px] text-muted transition-colors hover:text-ink" aria-label="New folder">
-            <FolderPlus className="size-4" strokeWidth={1.7} /> New folder
-          </button>
+          {activeFolder && (
+            <button
+              type="button"
+              onClick={deleteFolder}
+              disabled={deletingFolder}
+              aria-label={`Delete folder ${activeFolder.name}`}
+              title="Delete folder"
+              className="grid size-9 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-red-50 hover:text-red-600"
+            >
+              {deletingFolder ? <Loader2 className="spin size-3.5" /> : <Trash2 className="size-3.5" />}
+            </button>
+          )}
+          <NewFolder onCreated={setFolder} />
         </div>
+        {folderError && <p className="text-[12px] text-red-600">{folderError}</p>}
       </div>
 
       {/* Results */}
@@ -201,14 +325,28 @@ export function LibraryView() {
         )}
       </div>
 
-      {filtered.length === 0 ? (
+      {error && !data ? (
+        <div className="rise mt-6 flex flex-col items-center rounded-[28px] border border-dashed border-red-200 bg-red-50/60 px-6 py-12 text-center">
+          <AlertCircle className="size-6 text-red-500" />
+          <p className="mt-3 text-sm text-red-700">{errorMessage(error)}</p>
+          <button type="button" onClick={() => refetch()} disabled={isFetching} className="btn btn-ghost btn-sm mt-4">
+            {isFetching ? <Loader2 className="spin size-3.5" /> : <RotateCcw className="size-3.5" />} Try again
+          </button>
+        </div>
+      ) : isPending ? (
+        <LibrarySkeleton />
+      ) : filtered.length === 0 ? (
         <div className="rise mt-6 flex flex-col items-center rounded-[28px] border border-dashed border-line-strong bg-card/60 px-6 py-14 text-center">
           <Art id="empty-library" className="w-full max-w-[280px]" />
           <h2 className="mt-7 text-[26px] tracking-[-0.035em]">
             Nothing here <span className="serif-accent text-red-500">yet</span>.
           </h2>
           <p className="mt-2 max-w-[42ch] text-sm text-ink-soft">
-            {hasFilters ? "No notes match those filters. Try a different type or clear them." : "Drop in a link, a recording or a PDF and your first notes appear here."}
+            {hasFilters
+              ? folder !== "all" && items.length > 0 && !q && types.length === 0 && source === "all"
+                ? "This folder is empty. Move a note here from its ⋯ menu."
+                : "No notes match those filters. Try a different type or clear them."
+              : "Drop in a link, a recording or a PDF and your first notes appear here."}
           </p>
           <div className="mt-6 flex gap-2">
             {hasFilters && (
@@ -225,7 +363,7 @@ export function LibraryView() {
         <ul className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((item, i) => (
             <li key={item.id} className="rise" style={{ animationDelay: `${Math.min(i, 8) * 45}ms` }}>
-              <ItemCard item={item} onRetry={retry} />
+              <ItemCard item={item} actions={actions} />
             </li>
           ))}
         </ul>
@@ -233,7 +371,7 @@ export function LibraryView() {
         <ul className="mt-4 space-y-2">
           {filtered.map((item, i) => (
             <li key={item.id} className="rise" style={{ animationDelay: `${Math.min(i, 10) * 35}ms` }}>
-              <ItemRow item={item} onRetry={retry} />
+              <ItemRow item={item} actions={actions} />
             </li>
           ))}
         </ul>

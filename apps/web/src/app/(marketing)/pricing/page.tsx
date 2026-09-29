@@ -15,11 +15,11 @@ import { OG_IMAGE } from "@/lib/og";
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "anything2note is free to start: 120 media minutes and 50 document pages a month. Pro gives you 2,000 of each, speaker labels, exports and share links. Pay in INR or USD.",
+    "Three plans from $9 a month, each with a 7-day free trial. Priced in credits: 1 credit is one minute of audio or one page. One price worldwide, in USD.",
   alternates: { canonical: "/pricing" },
   openGraph: {
     title: "Pricing · anything2note",
-    description: "Start free. Upgrade when it sticks. Priced by minutes and pages, in INR or USD.",
+    description: "Try any plan free for 7 days. Priced in credits, one USD price worldwide.",
     url: "/pricing",
     images: [OG_IMAGE],
   },
@@ -34,10 +34,10 @@ export default function PricingPage() {
         eyebrow="Pricing"
         title={
           <>
-            Start free. Upgrade when it <span className="serif-accent text-red-500">sticks.</span>
+            Try it free for a week. Keep it if it <span className="serif-accent text-red-500">sticks.</span>
           </>
         }
-        sub="Priced by minutes and pages, so you only pay for what you actually feed it. Every note type and every output is on both plans."
+        sub="Priced in credits, so you only pay for what you actually feed it: 1 credit is a minute of audio or a page. Every note type and every output is on every plan."
         className="!pb-10"
       />
 
@@ -48,7 +48,7 @@ export default function PricingPage() {
         <Reveal delay={200}>
           <ul className="mx-auto mt-8 flex max-w-[1040px] flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[13px] text-muted">
             <li className="flex items-center gap-2">
-              <Receipt className="size-3.5" /> INR prices include GST
+              <Receipt className="size-3.5" /> One price worldwide, in USD
             </li>
             <li className="flex items-center gap-2">
               <Globe2 className="size-3.5" /> Local taxes handled at checkout
@@ -87,10 +87,10 @@ export default function PricingPage() {
             eyebrow="002 · Usage"
             title={
               <>
-                How minutes &amp; pages are <span className="serif-accent text-red-500">counted</span>
+                How credits are <span className="serif-accent text-red-500">counted</span>
               </>
             }
-            sub="No credits, no tokens, no maths. You're charged once for the source, by how long or how long-winded it is."
+            sub="No tokens, no maths. You're charged once for the source, by how long or how long-winded it is."
           />
           <div className="mt-14 grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-3">
             {COUNTING.map((c, i) => {
@@ -124,26 +124,25 @@ export default function PricingPage() {
                 <div className="max-w-[520px]">
                   <p className="eyebrow !text-night-muted">On your phone</p>
                   <h3 className="mt-3 text-[26px] leading-tight tracking-[-0.03em]">
-                    Subscribed in the App Store or Google Play? <span className="serif-accent text-red-400">It works here too.</span>
+                    Subscribed on the web? <span className="serif-accent text-red-400">It works on your phone too.</span>
                   </h3>
                   <p className="mt-3 text-[15px] leading-relaxed text-night-muted">
-                    One account, one plan, on web, iOS and Android. In-app subscriptions are billed and refunded by Apple or
-                    Google, so manage or cancel them in your store account. Store prices can be slightly higher to cover store
-                    fees.
+                    One account, one plan, on web, iOS and Android. Plans are sold here on the web for now: sign in to the app
+                    with the same account and your credits are already there.
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-col gap-3 sm:flex-row md:flex-col">
                   <span className="inline-flex items-center gap-3 rounded-xl border border-night-line bg-night-2 px-4 py-2.5 transition-colors duration-200 hover:border-night-muted/50">
                     <AppleLogo className="size-6 text-night-text" />
                     <span className="leading-tight">
-                      <span className="block text-[10px] text-night-muted">Subscribe on</span>
+                      <span className="block text-[10px] text-night-muted">Use it on</span>
                       <span className="block text-[15px] font-medium">App Store</span>
                     </span>
                   </span>
                   <span className="inline-flex items-center gap-3 rounded-xl border border-night-line bg-night-2 px-4 py-2.5 transition-colors duration-200 hover:border-night-muted/50">
                     <PlayLogo className="size-6" />
                     <span className="leading-tight">
-                      <span className="block text-[10px] text-night-muted">Subscribe on</span>
+                      <span className="block text-[10px] text-night-muted">Use it on</span>
                       <span className="block text-[15px] font-medium">Google Play</span>
                     </span>
                   </span>

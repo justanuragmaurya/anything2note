@@ -35,6 +35,8 @@ export function DitherGlow({ className = "" }: { className?: string }) {
     };
 
     const draw = (t: number) => {
+      // Hidden or not laid out yet (e.g. display:none below a breakpoint); the ResizeObserver redraws once it has a size.
+      if (!w || !h) return;
       pos.x += (target.x - pos.x) * 0.06;
       pos.y += (target.y - pos.y) * 0.06;
       const img = ctx.createImageData(w, h);

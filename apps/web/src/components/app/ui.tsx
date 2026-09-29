@@ -15,8 +15,8 @@ import {
   Video,
   type LucideProps,
 } from "lucide-react";
-import type { Anchor, SourceKind } from "@/lib/mock/app-data";
-import { fmtTime } from "@/lib/mock/app-data";
+import type { Anchor, SourceKind } from "@a2n/shared";
+import { fmtTime } from "@/lib/format";
 import { useWorkspaceNav } from "./workspace/context";
 
 /* ───────────── Icons ───────────── */
@@ -36,6 +36,7 @@ const SOURCE_ICONS: Record<Exclude<SourceKind, "youtube">, (p: LucideProps) => R
   video: (p) => <Video {...p} />,
   recording: (p) => <Mic {...p} />,
   pdf: (p) => <FileText {...p} />,
+  docx: (p) => <FileText {...p} />,
   slides: (p) => <Presentation {...p} />,
   image: (p) => <ImageIcon {...p} />,
   text: (p) => <Type {...p} />,
@@ -81,9 +82,17 @@ export function AnchorChip({ anchor, itemId, className = "" }: { anchor: Anchor;
       </button>
     );
   }
+  if (!itemId) {
+    return (
+      <span className={`${chipCls} ${className}`}>
+        {icon}
+        {label}
+      </span>
+    );
+  }
   const q = anchor.kind === "time" ? `t=${anchor.at}` : `p=${anchor.page}`;
   return (
-    <Link href={`/app/i/${itemId ?? "demo-meeting"}?${q}`} className={`${chipCls} ${className}`} aria-label={`Open at ${label}`}>
+    <Link href={`/app/i/${itemId}?${q}`} className={`${chipCls} ${className}`} aria-label={`Open at ${label}`}>
       {icon}
       {label}
     </Link>

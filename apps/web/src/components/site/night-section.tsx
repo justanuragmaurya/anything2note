@@ -4,21 +4,21 @@ import { CountUp } from "@/components/ui/count-up";
 import { Reveal } from "@/components/ui/reveal";
 
 const SCRAPS = [
-  { tag: "P0", title: "Who owns the Q3 deck??", body: "Nobody wrote it down. Again.", x: "4%", y: "18%", r: -3 },
+  { tag: "P0", title: "When is the essay due??", body: "Said on the way out. Again.", x: "4%", y: "18%", r: -3 },
   { tag: "P1", title: "Rewatching at 2×", body: "Lecture 7, for the third time.", x: "34%", y: "8%", r: 2 },
-  { tag: "P0", title: "What did she say at 23:14?", body: "Scrubbing a 90-min call…", x: "18%", y: "46%", r: 1 },
+  { tag: "P0", title: "What did she say at 23:14?", body: "Scrubbing a 90-min class recording…", x: "18%", y: "46%", r: 1 },
   { tag: "P2", title: "47 open tabs", body: "Papers you'll 'read later'.", x: "50%", y: "40%", r: -2 },
   { tag: "P1", title: "Whiteboard wiped", body: "The photo is blurry.", x: "8%", y: "72%", r: 2 },
   { tag: "P0", title: "Exam on Friday", body: "No flashcards. No summary.", x: "44%", y: "70%", r: -1 },
 ];
 
 const FEATURES = [
-  { icon: Timer, title: "Anchored to the second", body: "Every note, card and action item links back to the timestamp or page it came from. Click to jump." },
+  { icon: Timer, title: "Anchored to the second", body: "Every note, card and task links back to the timestamp or page it came from. Click to jump." },
   { icon: Lock, title: "Private by default", body: "Uploads, recordings and documents are yours alone. Originals can auto-delete after processing." },
-  { icon: MessageSquareText, title: "Chat with every item", body: "Ask follow-ups. The assistant cites exact moments and pages, and never makes up owners or dates." },
+  { icon: MessageSquareText, title: "Chat with every item", body: "Ask follow-ups. The assistant cites exact moments and pages, and never makes up facts or dates." },
   { icon: Languages, title: "Notes in your language", body: "Source in Hindi, notes in English — or any mix. Output language is a toggle, not a workaround." },
   { icon: Clock, title: "First output in minutes", body: "The primary output streams in first, the rest follow. Captions-first for YouTube keeps it fast." },
-  { icon: Globe2, title: "Web, iOS and Android", body: "Record on your phone, review on your laptop. Flashcards and action items work offline." },
+  { icon: Globe2, title: "Web, iOS and Android", body: "Record on your phone, review on your laptop. Flashcards and tasks work offline." },
 ];
 
 export function NightSection() {
@@ -84,11 +84,11 @@ export function NightSection() {
               <div className="relative my-auto flex items-center gap-3 rounded-xl border border-cream/30 bg-cream/15 px-5 py-3.5 text-[15px] backdrop-blur">
                 <Check className="size-4" />
                 <span>
-                  One 52-min call → <CountUp to={14} className="font-medium" /> outputs, all linked to the minute
+                  One 52-min lecture → <CountUp to={14} className="font-medium" /> outputs, all linked to the minute
                 </span>
               </div>
               <ul className="relative grid w-full max-w-sm grid-cols-2 gap-2 text-[13px]">
-                {["Minutes, sent", "3 action items", "42 flashcards", "Quiz: 9/10"].map((t) => (
+                {["Detailed notes", "3 deadlines caught", "42 flashcards", "Quiz: 9/10"].map((t) => (
                   <li key={t} className="flex items-center gap-2 rounded-lg bg-cream/10 px-3 py-2">
                     <span className="size-1.5 rounded-full bg-cream" />
                     {t}

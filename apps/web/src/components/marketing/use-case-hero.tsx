@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowDown, ArrowLeft } from "lucide-react";
 import { Art } from "@/components/ui/art";
 import type { UseCase } from "@/lib/mock/marketing-use-cases";
-import { noteType } from "@/lib/mock/note-types";
+import { noteType } from "@/lib/note-types";
 import { DropBar } from "./drop-bar";
 
 /** Simpler paper hero for use-case pages: one floating object, the drop bar. */
@@ -72,7 +72,7 @@ export function UseCaseHero({ uc }: { uc: UseCase }) {
               <ArrowDown className="size-4" />
             </a>
             <span className="hidden h-4 w-px bg-line-strong sm:block" />
-            <span className="text-sm text-muted">Free · no card needed</span>
+            <span className="text-sm text-muted">7 days free · cancel anytime</span>
           </div>
         </div>
       </div>

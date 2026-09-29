@@ -5,11 +5,11 @@
  */
 
 import type { ArtId } from "@/lib/art";
-import type { NoteTypeKey } from "@/lib/mock/note-types";
+import type { NoteTypeKey } from "@/lib/note-types";
 import { NOT_MENTIONED, type SampleDoc } from "@/lib/mock/marketing-samples";
 
 export const USE_CASE_SLUGS = [
-  "meeting-minutes",
+  "record-lectures",
   "lecture-notes",
   "youtube-to-notes",
   "pdf-to-notes",
@@ -44,7 +44,7 @@ type Accented = { before: string; accent: string; after?: string };
 
 export type UseCase = {
   slug: UseCaseSlug;
-  /** Short name for cross-links, e.g. "Meeting minutes" */
+  /** Short name for cross-links, e.g. "Lecture recorder" */
   name: string;
   metaTitle: string;
   metaDescription: string;
@@ -68,146 +68,149 @@ export type UseCase = {
 const m = (min: number, sec = 0) => min * 60 + sec;
 
 export const USE_CASES: Record<UseCaseSlug, UseCase> = {
-  "meeting-minutes": {
-    slug: "meeting-minutes",
-    name: "Meeting minutes",
-    metaTitle: "AI meeting minutes generator: minutes, decisions and action items",
+  "record-lectures": {
+    slug: "record-lectures",
+    name: "Lecture recorder",
+    metaTitle: "Record lectures in class: detailed notes and deadlines from your class audio",
     metaDescription:
-      "Upload or record a meeting and get proper minutes of meeting: attendees, discussion, decisions and action items with owners and due dates, each linked to the moment it was said.",
-    keywords: ["meeting minutes", "minutes of meeting", "MoM generator", "action items", "meeting notes AI"],
-    eyebrow: "Use case · Meetings",
-    title: { before: "Minutes of meeting, written", accent: "before", after: "you've left the room" },
-    sub: "Upload the recording or record right in the browser. Get proper minutes with attendees, discussion, decisions and owned action items, and every line links to the moment it was said.",
-    noteType: "meeting",
+      "Record your class on your phone or laptop and get detailed notes of everything the lecturer taught, each line linked to the moment it was said, plus the homework, readings and exam dates they mentioned.",
+    keywords: ["record lectures", "lecture recorder app", "record class and get notes", "AI note taker for class", "lecture audio to notes", "class recording transcription"],
+    eyebrow: "Use case · Class recordings",
+    title: { before: "Listen in class.", accent: "We'll", after: "take the notes" },
+    sub: "Put your phone on the desk and hit record. After class, get detailed notes of everything the lecturer taught, each line linked to the moment it was said, plus every homework, reading and exam date they mentioned on the way out.",
+    noteType: "lecture",
     source: {
-      kind: "Meeting recording",
+      kind: "Class recording",
       icon: "mic",
-      placeholders: ["Drop Tuesday's stand-up recording…", "Upload client-call.m4a…", "Record the board review…"],
+      placeholders: ["Record this morning's econ lecture…", "Upload ECON-102-lecture-14.m4a…", "Drop the voice memo from Tuesday's lab…"],
     },
     art: "hero-cassette",
-    artTint: "var(--nt-meeting)",
+    artTint: "var(--nt-lecture)",
     benefits: [
       {
-        icon: "users",
-        title: "Knows who said what",
-        body: "Speaker labels (Pro) turn “someone mentioned” into “Arjun proposed”. Rename a speaker once and every minute, action and decision updates.",
+        icon: "list",
+        title: "As detailed as the class",
+        body: "Not a summary. Every topic, worked example and aside, in the order it was taught, with a timestamp to jump back to the bit you missed while copying the board.",
+      },
+      {
+        icon: "bookmark",
+        title: "Deadlines, caught in passing",
+        body: "“Problem set 5 is due Friday”, said as everyone packs up, lands in Tasks & deadlines. If no date was given, it says Not mentioned instead of guessing one.",
       },
       {
         icon: "shield",
-        title: "Never invents an owner",
-        body: "If nobody took the task or named a date, it says Not mentioned. You fix it in one click. Nobody gets surprised by a deadline they never agreed to.",
-      },
-      {
-        icon: "send",
-        title: "Ready to send",
-        body: "A follow-up email drafted from the decisions, minutes exported to DOCX for the file, and action items tracked across every meeting you've ever uploaded.",
+        title: "The audio doesn't hang around",
+        body: "Auto-delete is on by default for class recordings: the audio is removed right after processing and your notes stay. The recorder reminds you to check that recording is allowed.",
       },
     ],
-    sampleTitle: { before: "Real minutes, from a", accent: "47-minute", after: "call" },
-    sampleSub: "Here's what comes back from a planning sync with four people and one too many agenda items.",
+    sampleTitle: { before: "A 55-minute econ lecture, recorded on a phone,", accent: "fully noted" },
+    sampleSub: "From a first-year economics lecture recorded from the third row. Detailed notes first, then the tasks the lecturer mentioned.",
     sample: {
-      output: "Minutes of meeting",
-      file: "q4-planning-sync.m4a",
-      meta: ["47 min", "4 speakers", "English"],
+      output: "Detailed notes · Tasks & deadlines",
+      file: "ECON 102 · Lecture 14 · class-recording.m4a",
+      meta: ["55 min", "Lecture", "Recorded in class"],
       blocks: [
         {
           type: "fields",
           rows: [
-            { label: "Meeting", value: "Q4 planning sync" },
-            { label: "Date", value: "Tue, 22 Sep 2026 · 10:00" },
-            { label: "Attendees", value: "Priya (chair), Arjun, Meera, Kabir" },
-            { label: "Apologies", value: NOT_MENTIONED },
+            { label: "Course", value: "ECON 102 · Principles of Microeconomics" },
+            { label: "Lecture", value: "14 · Price elasticity of demand" },
+            { label: "Recorded", value: "Thu, 24 Sep 2026 · 09:00" },
+            { label: "Slides", value: NOT_MENTIONED },
           ],
         },
-        { type: "heading", text: "Discussion" },
+        { type: "heading", text: "1. What elasticity measures", anchor: { kind: "time", at: m(1, 50) } },
         {
-          type: "numbered",
+          type: "paragraph",
+          text: "Price elasticity of demand (PED) is the percentage change in quantity demanded divided by the percentage change in price. It has no units, so you can compare how buyers react to coffee prices with how they react to petrol.",
+        },
+        { type: "heading", text: "2. The midpoint method", anchor: { kind: "time", at: m(8, 15) } },
+        {
+          type: "bullets",
           items: [
-            {
-              title: "Q4 roadmap cut-line",
-              body: "Priya proposed dropping bulk export from Q4 to protect the onboarding rewrite. Kabir raised that two enterprise pilots depend on it; agreed to ship a CSV-only version instead.",
-              anchor: { kind: "time", at: m(3, 12) },
-            },
-            {
-              title: "Onboarding drop-off",
-              body: "Meera shared that 38% of new sign-ups leave at the workspace-invite step. Group favoured making invites skippable over redesigning the step.",
-              anchor: { kind: "time", at: m(14, 40) },
-            },
-            {
-              title: "Support hiring",
-              body: "Ticket volume is up 60% since August. Arjun asked for one support hire now rather than two in January; no objection raised.",
-              anchor: { kind: "time", at: m(31, 5) },
-            },
+            { text: "PED = (ΔQ ÷ average Q) ÷ (ΔP ÷ average P). Using averages gives the same answer whether the price rises or falls.", anchor: { kind: "time", at: m(9, 2) } },
+            { text: "Worked example from the board: price ₹40 → ₹60, cups sold 100 → 60. PED = (−40 ÷ 80) ÷ (20 ÷ 50) = −1.25, so demand is elastic.", anchor: { kind: "time", at: m(12, 40) } },
+            { text: "Quote the absolute value: above 1 is elastic, below 1 is inelastic, exactly 1 is unit elastic.", anchor: { kind: "time", at: m(15, 10) } },
           ],
         },
-        { type: "heading", text: "Decisions" },
+        { type: "heading", text: "3. What makes demand elastic", anchor: { kind: "time", at: m(21, 30) } },
         {
-          type: "decisions",
+          type: "bullets",
           items: [
-            { text: "Bulk export ships as CSV-only in Q4; full export moves to Q1.", anchor: { kind: "time", at: m(9, 48) } },
-            { text: "Workspace invites become skippable in the next release.", anchor: { kind: "time", at: m(22, 3) } },
+            { text: "Close substitutes: one brand of tea is elastic, tea in general is not.", anchor: { kind: "time", at: m(22, 5) } },
+            { text: "A big share of the budget, like rent or a scooter.", anchor: { kind: "time", at: m(24, 48) } },
+            { text: "Time: people find alternatives to petrol over years, not days.", anchor: { kind: "time", at: m(27, 20) } },
           ],
         },
-        { type: "heading", text: "Action items" },
+        { type: "heading", text: "4. Elasticity and total revenue", anchor: { kind: "time", at: m(34, 0) } },
         {
-          type: "actions",
+          type: "bullets",
           items: [
-            { task: "Scope CSV-only export and share estimate", owner: "Kabir", due: "Fri, 25 Sep", anchor: { kind: "time", at: m(10, 20) } },
-            { task: "Ship skippable invite step behind a flag", owner: "Meera", due: NOT_MENTIONED, anchor: { kind: "time", at: m(23, 11) } },
-            { task: "Open support role and draft JD", owner: NOT_MENTIONED, due: NOT_MENTIONED, anchor: { kind: "time", at: m(33, 40) } },
+            { text: "Elastic demand: a price cut raises total revenue. Inelastic demand: a price rise does.", anchor: { kind: "time", at: m(35, 12) } },
+            { text: "Student question: why can farmers earn less after a bumper harvest? Because food demand is inelastic, the price falls by more than quantity rises.", anchor: { kind: "time", at: m(41, 30) } },
           ],
         },
         {
           type: "callout",
-          label: "Next meeting",
-          text: "Tue, 29 Sep. Suggested agenda: invite-step results, CSV export estimate, support JD review.",
+          label: "Flagged by the lecturer",
+          text: "“The total-revenue test is on the midterm every year. Be able to argue it in both directions.”",
+        },
+        { type: "heading", text: "Tasks & deadlines" },
+        {
+          type: "tasks",
+          items: [
+            { task: "Problem set 5: elasticity questions 1–8", kind: "homework", due: "Fri, 2 Oct", anchor: { kind: "time", at: m(52, 10) } },
+            { task: "Read Mankiw ch. 5, sections 5.1–5.2", kind: "reading", due: "Tue, 29 Sep", anchor: { kind: "time", at: m(53, 2) } },
+            { task: "Midterm: lectures 1–15, closed book", kind: "exam", due: "Wed, 14 Oct", anchor: { kind: "time", at: m(53, 40) } },
+            { task: "Pick a market for the group elasticity presentation", kind: "project", due: NOT_MENTIONED, anchor: { kind: "time", at: m(54, 20) } },
+          ],
         },
       ],
     },
     steps: [
-      { title: "Record or upload", body: "Record in the browser or phone, or drop in an mp3, m4a, mp4 or a Zoom/Meet export. Up to 5 hours on Pro." },
-      { title: "Pick Meeting", body: "Or let auto-detect choose. Minutes, TL;DR, action items, decisions and detailed notes are switched on by default." },
-      { title: "Review and send", body: "Tick off actions, fix an owner, then copy the follow-up email or export the minutes to DOCX." },
+      { title: "Hit record in class", body: "Open the app on your phone or laptop and leave it on the desk. It keeps recording with the screen off, up to 6 hours on Pro. Or upload a voice memo afterwards." },
+      { title: "Pick Lecture", body: "Or let auto-detect choose. Detailed notes, revision points, flashcards, a quiz, a glossary and Tasks & deadlines are on by default." },
+      { title: "Review after class", body: "Skim the notes on the way home, jump to any timestamp that's unclear, and tick off tasks from every course in one list." },
     ],
     faq: [
       {
-        q: "Does it work with Zoom, Google Meet and Teams recordings?",
-        a: "Yes. Upload the audio or video file any of them export (mp4, m4a, webm, wav…). There's no bot that joins your call. You stay in control of what gets recorded.",
+        q: "Am I allowed to record my lectures?",
+        a: "It depends on your institution and your lecturer. Many allow personal recordings for study; some ask you to get permission first. Check your course policy or ask the lecturer. The in-app recorder reminds you before it starts.",
       },
       {
-        q: "What if two people talk over each other?",
-        a: "Speaker labels handle most crosstalk. Where the audio is genuinely ambiguous, the minutes attribute the point to the group rather than guessing a name.",
+        q: "Will it hear the lecturer from the middle of the room?",
+        a: "A phone on the desk in the first few rows works well. Background chatter and fan hum are cleaned up, and if a stretch is genuinely inaudible the notes say so instead of filling the gap.",
       },
       {
-        q: "Do I need everyone's consent to record?",
-        a: "In many places you do, and it's good practice everywhere. The in-app recorder shows a consent reminder before it starts. Recording lawfully is your responsibility.",
+        q: "Does it tell the lecturer apart from students' questions?",
+        a: "Speaker labels, which separate the lecturer from questions asked in the room, are on the way. Until then, questions are captured in the transcript and notes.",
       },
       {
-        q: "Can I delete the recording after the minutes are made?",
-        a: "Yes. Auto-delete is on by default for meetings: the original file is removed right after processing, and the minutes, transcript and actions stay.",
+        q: "What happens to the recording afterwards?",
+        a: "Auto-delete is on by default for class recordings: the audio is removed right after processing, and your notes, transcript and tasks stay. Turn it off in settings if you'd rather keep the audio to replay.",
       },
     ],
     cta: {
-      title: { before: "Your next meeting,", accent: "already minuted." },
-      body: "Start free with 120 media minutes a month, which covers two or three meetings. No card required.",
+      title: { before: "Your next class,", accent: "already noted." },
+      body: "Try it free for 7 days with 150 credits, enough for two lectures. Cancel anytime.",
     },
   },
 
   "lecture-notes": {
     slug: "lecture-notes",
     name: "Lecture notes",
-    metaTitle: "AI lecture notes: detailed notes, flashcards and quizzes from any lecture",
+    metaTitle: "AI lecture notes: detailed notes, flashcards and quizzes from YouTube lectures and slides",
     metaDescription:
-      "Turn a lecture recording, slides or a YouTube class into detailed notes with timestamps, revision points, flashcards, a quiz and a glossary. Built for exam season.",
-    keywords: ["lecture notes", "AI note taker for students", "lecture to flashcards", "lecture summary", "study notes"],
+      "Turn a YouTube lecture, a course video or a slide deck into detailed notes with timestamps, revision points, flashcards, a quiz and a glossary. Built for exam season.",
+    keywords: ["lecture notes", "youtube lecture notes", "slides to notes", "lecture to flashcards", "lecture summary", "study notes"],
     eyebrow: "Use case · Lectures",
     title: { before: "Lecture notes you'd", accent: "actually", after: "revise from" },
-    sub: "Record the class, upload the slides or paste the YouTube link. Get structured notes with timestamps back to the lecture, plus flashcards and a quiz for the night before.",
+    sub: "Paste the YouTube lecture, upload the course video or drop in the slides. Get structured notes with timestamps back to the lecture, plus flashcards and a quiz for the night before.",
     noteType: "lecture",
     source: {
-      kind: "Lecture recording",
-      icon: "audio",
-      placeholders: ["Upload this morning's biochem lecture…", "Paste the course YouTube link…", "Drop week-9-slides.pptx…"],
+      kind: "Lecture video",
+      icon: "monitor",
+      placeholders: ["Paste the course YouTube link…", "Drop week-9-slides.pptx…", "Upload the biochem lecture from the course portal…"],
     },
     art: "hero-slides",
     artTint: "var(--nt-lecture)",
@@ -215,7 +218,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       {
         icon: "timer",
         title: "Every heading, a timestamp",
-        body: "Confused by section three? Tap its chip and the recording jumps to the exact minute the lecturer explained it. No more scrubbing.",
+        body: "Confused by section three? Tap its chip and the video jumps to the exact minute the lecturer explained it. No more scrubbing.",
       },
       {
         icon: "brain",
@@ -272,7 +275,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       ],
     },
     steps: [
-      { title: "Bring the lecture", body: "A recording, the slide deck, a YouTube link or all three. Slides and audio can be combined into one item." },
+      { title: "Bring the lecture", body: "A YouTube link, a video from your course portal, the slide deck, or all of them. Slides and video can be combined into one item." },
       { title: "Pick Lecture", body: "Detailed notes, revision points, flashcards, a quiz and a glossary are on by default. Add key formulas or a mind map if you want them." },
       { title: "Revise on a schedule", body: "Due cards appear in Review every day across all your courses. Quizzes show which topics need another pass." },
     ],
@@ -283,20 +286,20 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       },
       {
         q: "My lecturer mostly reads from slides. Should I upload those too?",
-        a: "Upload both. The notes use the slides for structure and spelling of technical terms, and the recording for everything that was said but never written down.",
+        a: "Upload both. The notes use the slides for structure and spelling of technical terms, and the video for everything that was said but never written down.",
       },
       {
         q: "Can I export flashcards to Anki?",
-        a: "On Pro, yes: Anki CSV export for any item. On Free you can review cards inside anything2note with the same spaced-repetition schedule.",
+        a: "Yes, on every plan: export any set of flashcards as Anki CSV, or review them inside anything2note with the same spaced-repetition schedule.",
       },
       {
-        q: "Is it allowed to record lectures?",
-        a: "That depends on your institution. Many allow personal recordings for study; some require permission. Check your course policy first.",
+        q: "Can I use lectures from Coursera, NPTEL or my university's portal?",
+        a: "Yes, if you can download the video or it's a public YouTube link. Sitting in the class itself? Use the Lecture recorder and record the audio live instead.",
       },
     ],
     cta: {
       title: { before: "This semester, take notes", accent: "once." },
-      body: "Start free with 120 media minutes and 50 document pages every month. No card required.",
+      body: "Try it free for 7 days with 150 credits. Cancel anytime.",
     },
   },
 
@@ -380,7 +383,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       },
       {
         q: "Does a YouTube video count against my minutes?",
-        a: "Yes. A video uses its length in media minutes the first time you add it, just like an upload. Regenerating or adding outputs later is free.",
+        a: "Yes. A video uses 1 credit per minute of its length the first time you add it, just like an upload. Regenerating or adding outputs later is free.",
       },
       {
         q: "Can I do a whole playlist?",
@@ -393,7 +396,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
     ],
     cta: {
       title: { before: "That 3-hour video in your Watch Later?", accent: "Read it instead." },
-      body: "Start free with 120 media minutes a month. Paste your first link in seconds.",
+      body: "Try it free for 7 days. Paste your first link in seconds.",
     },
   },
 
@@ -470,14 +473,14 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       ],
     },
     steps: [
-      { title: "Upload the document", body: "PDF, Word, PowerPoint or photos of pages, up to 2 GB on Pro. Scanned pages are OCR'd automatically." },
+      { title: "Upload the document", body: "PDF, Word, PowerPoint or photos of pages, up to 200 MB each. Scanned pages are OCR'd automatically." },
       { title: "Pick Reading", body: "Summary, detailed notes, key concepts, flashcards and a quiz by default. Add a glossary, critique or citations." },
       { title: "Read with receipts", body: "Open the document beside the notes. Every chip jumps to its page, and the assistant cites pages when it answers." },
     ],
     faq: [
       {
         q: "How are pages counted?",
-        a: "Each PDF page, slide or photo is one page. A 34-page chapter uses 34 of your monthly document pages. Free includes 50 a month, Pro 2,000.",
+        a: "Each PDF page, slide or photo is 1 credit. A 34-page chapter uses 34 credits. Plans include 1,200 to 5,000 credits a month.",
       },
       {
         q: "Does it work on scanned or handwritten pages?",
@@ -494,7 +497,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
     ],
     cta: {
       title: { before: "The reading list is long.", accent: "Your notes don't have to be." },
-      body: "Start free with 50 document pages every month. No card required.",
+      body: "Try it free for 7 days with 150 credits. Cancel anytime.",
     },
   },
 
@@ -579,20 +582,20 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       },
       {
         q: "How long can an episode be?",
-        a: "Up to 60 minutes per file on Free and up to 5 hours on Pro, which covers most marathon interviews.",
+        a: "Up to 2 hours per recording on Starter, 4 on Plus and 6 on Pro, which covers most marathon interviews.",
       },
       {
         q: "Will it get the speakers right?",
-        a: "On Pro, speaker labels separate the voices. Rename “Speaker 1” to the host once and every quote and chapter updates.",
+        a: "Speaker labels that separate the voices are on the way. For now, quotes and chapters come with timestamps so you can jump straight to who said it.",
       },
       {
         q: "Can I share the summary?",
-        a: "Pro includes read-only share links. Send the takeaways to someone who doesn't have an account, with no sign-up required to read it.",
+        a: "Read-only share links are coming soon. Until then, export the takeaways as Markdown and send them anywhere.",
       },
     ],
     cta: {
       title: { before: "Listen to the good", accent: "twenty minutes." },
-      body: "Start free with 120 media minutes a month. No card required.",
+      body: "Try it free for 7 days with 150 credits. Cancel anytime.",
     },
   },
 
@@ -702,7 +705,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
     ],
     cta: {
       title: { before: "Spend the afternoon on insight,", accent: "not transcripts." },
-      body: "Start free with 120 media minutes a month. No card required.",
+      body: "Try it free for 7 days with 150 credits. Cancel anytime.",
     },
   },
 
@@ -711,11 +714,11 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
     name: "Whiteboard to notes",
     metaTitle: "Whiteboard to notes: turn whiteboard photos and handwriting into notes",
     metaDescription:
-      "Snap a photo of a whiteboard, flip chart or handwritten page and get clean typed notes, key points and action items, with each point linked to the area of the photo it came from.",
+      "Snap a photo of a whiteboard, flip chart or handwritten page and get clean typed notes, key points and tasks, with each point linked to the area of the photo it came from.",
     keywords: ["whiteboard to notes", "whiteboard photo to text", "handwriting to notes", "flip chart notes", "OCR notes"],
     eyebrow: "Use case · Whiteboards",
     title: { before: "Snap the whiteboard", accent: "before", after: "it's wiped" },
-    sub: "Photograph the whiteboard, flip chart or notebook page. Get typed notes, key points and action items, with each one pointing to where it was on the board.",
+    sub: "Photograph the whiteboard, flip chart or notebook page. Get typed notes, key points and tasks, with each one pointing to where it was on the board.",
     noteType: "general",
     source: {
       kind: "Whiteboard photo",
@@ -744,7 +747,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
     sampleTitle: { before: "A messy architecture session,", accent: "made legible" },
     sampleSub: "From one phone photo of a whiteboard after a checkout redesign session. Chips point to regions of the photo.",
     sample: {
-      output: "Key points & actions",
+      output: "Key points & tasks",
       file: "IMG_2231.jpg · whiteboard",
       meta: ["1 photo", "Handwriting", "3 regions"],
       blocks: [
@@ -760,10 +763,10 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
         },
         { type: "heading", text: "From the sticky notes" },
         {
-          type: "actions",
+          type: "tasks",
           items: [
-            { task: "Write the price snapshot schema", owner: "RK", due: NOT_MENTIONED, anchor: { kind: "region", label: "Right column" } },
-            { task: "Spike webhook retry queue", owner: NOT_MENTIONED, due: "Thu", anchor: { kind: "region", label: "Right column" } },
+            { task: "Write the price snapshot schema", kind: "project", due: NOT_MENTIONED, anchor: { kind: "region", label: "Right column" } },
+            { task: "Spike the webhook retry queue", kind: "project", due: "Thu, 1 Oct", anchor: { kind: "region", label: "Right column" } },
           ],
         },
         {
@@ -775,8 +778,8 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
     },
     steps: [
       { title: "Take the photo", body: "Straight on if you can, but angled shots are fine. We correct perspective and glare. Add several photos for a long board." },
-      { title: "Pick General, or Meeting", body: "General gives a summary, notes and key points. If the board was from a meeting, Meeting adds decisions and actions." },
-      { title: "Wipe with confidence", body: "Check the [?] marks against the photo, tick your actions, and share the notes with the room." },
+      { title: "Pick General, or Lecture", body: "General gives a summary, notes and key points. If the board is from a class, Lecture adds revision points, flashcards and Tasks & deadlines." },
+      { title: "Wipe with confidence", body: "Check the [?] marks against the photo, tick off your tasks, and share the notes with the room." },
     ],
     faq: [
       {
@@ -785,7 +788,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       },
       {
         q: "How is a photo counted?",
-        a: "Each photo is one document page. Free includes 50 pages a month, which is plenty of whiteboards.",
+        a: "Each photo is 1 credit. Even Starter includes 1,200 a month, which is plenty of whiteboards.",
       },
       {
         q: "Can I photograph handwritten notebook pages?",
@@ -798,7 +801,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
     ],
     cta: {
       title: { before: "Wipe the board.", accent: "Keep the thinking." },
-      body: "Start free with 50 document pages every month. No card required.",
+      body: "Try it free for 7 days with 150 credits. Cancel anytime.",
     },
   },
 };

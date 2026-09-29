@@ -31,7 +31,7 @@ import { Accordion } from "@/components/marketing/accordion";
 import { SampleDocument } from "@/components/marketing/sample-document";
 import { UseCaseHero } from "@/components/marketing/use-case-hero";
 import { getUseCase, USE_CASE_SLUGS, USE_CASES, type BenefitIcon } from "@/lib/mock/marketing-use-cases";
-import { noteType, OUTPUT_LABELS } from "@/lib/mock/note-types";
+import { noteType, OUTPUT_LABELS } from "@/lib/note-types";
 import { OG_IMAGE } from "@/lib/og";
 
 type Props = { params: Promise<{ useCase: string }> };
@@ -170,7 +170,7 @@ export default async function UseCasePage({ params }: Props) {
                 </ul>
                 <p className="mt-4 text-xs text-ink-soft">Dashed outputs are optional extras. Add any of them later.</p>
                 <Link href="/#note-types" className="link-arrow mt-6 self-start text-sm text-ink">
-                  All seven note types
+                  All six note types
                   <ArrowRight className="size-4" />
                 </Link>
               </aside>

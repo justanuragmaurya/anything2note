@@ -2,19 +2,31 @@
 
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { ArrowUpRight, Flame } from "lucide-react";
+import { AlertCircle, ArrowUpRight, Flame, Loader2, RotateCcw } from "lucide-react";
+import type { StatsResponse } from "@a2n/shared";
 import { CountUp } from "@/components/ui/count-up";
-import { MONTHS, STATS, TODAY_ISO, USER, fmtDayUTC } from "@/lib/mock/app-data";
+import { errorMessage } from "@/lib/api";
+import { MONTHS, fmtDayUTC, fmtTsDate, todayIso } from "@/lib/format";
+import { useStats } from "@/lib/queries";
 import { PageHeader, ProgressBar } from "../ui";
 
 const WEEKS = 26;
 const LEVELS = ["bg-panel", "bg-red-100", "bg-red-200", "bg-red-400", "bg-red-600"];
 const level = (n: number) => (n === 0 ? 0 : n < 6 ? 1 : n < 12 ? 2 : n < 20 ? 3 : 4);
 const DAY = 86_400_000;
-const TODAY = Date.parse(`${TODAY_ISO}T00:00:00Z`);
 
-const cellDate = (i: number) => new Date(TODAY - (WEEKS * 7 - 1 - i) * DAY);
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+const todayMs = () => Date.parse(`${todayIso()}T00:00:00Z`);
+const cellDate = (i: number) => new Date(todayMs() - (WEEKS * 7 - 1 - i) * DAY);
 const fmtDay = fmtDayUTC;
+
+/** "+40% vs last month", or null when there's no last month to compare with. */
+function monthDelta(now: number, last: number): { text: string; up: boolean } | null {
+  if (last === 0) return null;
+  const pct = Math.round(((now - last) / last) * 100);
+  return { text: `${pct >= 0 ? "+" : "−"}${Math.abs(pct)}% vs last month`, up: pct >= 0 };
+}
 
 function Tile({ label, children, foot, delay }: { label: string; children: ReactNode; foot: ReactNode; delay: number }) {
   return (
@@ -28,9 +40,8 @@ function Tile({ label, children, foot, delay }: { label: string; children: React
   );
 }
 
-function Heatmap() {
+function Heatmap({ cells }: { cells: number[] }) {
   const [hover, setHover] = useState<number | null>(null);
-  const cells = STATS.heatmap;
   const months: { col: number; label: string }[] = [];
   for (let w = 0; w < WEEKS; w++) {
     const d = cellDate(w * 7);
@@ -102,11 +113,12 @@ function Heatmap() {
   );
 }
 
-function WeeklyBars() {
+function WeeklyBars({ weekly }: { weekly: number[] }) {
   const [hover, setHover] = useState<number | null>(null);
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const max = Math.max(...STATS.weekly);
-  const sum = STATS.weekly.reduce((a, b) => a + b, 0);
+  const max = Math.max(1, ...weekly);
+  const sum = weekly.reduce((a, b) => a + b, 0);
+  const todayIdx = (new Date(todayMs()).getUTCDay() + 6) % 7;
   return (
     <section className="rise flex flex-col rounded-[28px] border border-line bg-card p-5 sm:p-6" style={{ animationDelay: "300ms" }} aria-label="Cards reviewed this week">
       <p className="eyebrow text-[10px]">This week</p>
@@ -114,7 +126,7 @@ function WeeklyBars() {
         <span className="text-ink">{sum}</span> cards reviewed
       </p>
       <div className="mt-5 flex h-[150px] flex-1 items-end gap-2 border-b border-line" onPointerLeave={() => setHover(null)}>
-        {STATS.weekly.map((v, i) => (
+        {weekly.map((v, i) => (
           <div key={days[i]} className="group relative flex h-full flex-1 items-end" onPointerEnter={() => setHover(i)}>
             {hover === i && (
               <span className="absolute -top-1 left-1/2 z-10 -translate-x-1/2 -translate-y-full rounded-md bg-night px-2 py-1 font-mono text-[10px] whitespace-nowrap text-night-text">
@@ -122,7 +134,7 @@ function WeeklyBars() {
               </span>
             )}
             <span
-              className={`w-full origin-bottom rounded-t-[4px] transition-colors duration-200 ${i === 6 ? "bg-red-500" : hover === i ? "bg-ink-soft" : "bg-line-strong"}`}
+              className={`w-full origin-bottom rounded-t-[4px] transition-colors duration-200 ${i === todayIdx ? "bg-red-500" : hover === i ? "bg-ink-soft" : "bg-line-strong"}`}
               style={{ height: `${(v / max) * 100}%` }}
               aria-label={`${days[i]}: ${v} cards`}
               role="img"
@@ -132,7 +144,7 @@ function WeeklyBars() {
       </div>
       <div className="mt-2 flex gap-2 font-mono text-[9px] tracking-[0.06em] text-muted uppercase">
         {days.map((d, i) => (
-          <span key={d} className={`flex-1 text-center ${i === 6 ? "text-red-600" : ""}`}>
+          <span key={d} className={`flex-1 text-center ${i === todayIdx ? "text-red-600" : ""}`}>
             {d}
           </span>
         ))}
@@ -142,17 +154,50 @@ function WeeklyBars() {
 }
 
 export function StatsView() {
-  const u = USER.usage;
+  const { data, error, refetch, isFetching } = useStats();
+  if (!data)
+    return error ? (
+      <div className="rise mx-auto flex max-w-[520px] flex-col items-center py-16 text-center">
+        <AlertCircle className="size-7 text-red-500" />
+        <p className="mt-4 text-sm text-ink-soft">{errorMessage(error)}</p>
+        <button type="button" onClick={() => refetch()} disabled={isFetching} className="btn btn-ink btn-sm mt-5">
+          {isFetching ? <Loader2 className="spin size-3.5" /> : <RotateCcw className="size-3.5" />} Try again
+        </button>
+      </div>
+    ) : (
+      <div className="mx-auto max-w-[1100px]" aria-busy="true" aria-label="Loading stats">
+        <div className="skeleton h-3 w-28 rounded-full" />
+        <div className="skeleton mt-4 h-10 w-80 max-w-full rounded-2xl" />
+        <div className="mt-7 grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="skeleton h-40 rounded-[24px]" />
+          ))}
+        </div>
+        <div className="skeleton mt-4 h-60 rounded-[28px]" />
+      </div>
+    );
+  return <Stats stats={data} />;
+}
+
+function Stats({ stats }: { stats: StatsResponse }) {
+  const { credits, chat, canUse, periodEnd } = stats.billing;
+  const delta = monthDelta(stats.cardsReviewedThisMonth, stats.cardsReviewedLastMonth);
   return (
     <div className="mx-auto max-w-[1100px]">
       <PageHeader
-        eyebrow="Stats · September"
+        eyebrow={`Stats · ${MONTH_NAMES[new Date(todayMs()).getUTCMonth()]}`}
         title={
-          <>
-            A <span className="serif-accent text-red-500">{USER.streak}-day</span> streak. Keep it warm.
-          </>
+          stats.streak > 0 ? (
+            <>
+              A <span className="serif-accent text-red-500">{stats.streak}-day</span> streak. Keep it warm.
+            </>
+          ) : (
+            <>
+              Your streak starts <span className="serif-accent text-red-500">today</span>.
+            </>
+          )
         }
-        sub="Reviews, quiz scores and what’s left on your plan this month."
+        sub="Reviews, quiz scores and what’s left on your plan this cycle."
         actions={
           <Link href="/app/review" className="btn btn-red btn-sm">
             <Flame className="size-3.5" /> Review now
@@ -161,44 +206,72 @@ export function StatsView() {
       />
 
       <div className="mt-7 grid grid-cols-[minmax(0,1fr)] gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Tile label="Cards reviewed" delay={60} foot={<span className="text-green-800">{STATS.cardsDelta}</span>}>
-          <CountUp to={STATS.cardsReviewed} />
+        <Tile
+          label="Cards reviewed"
+          delay={60}
+          foot={
+            delta ? (
+              <span className={delta.up ? "text-green-800" : "text-red-700"}>{delta.text}</span>
+            ) : stats.cardsReviewedThisMonth > 0 ? (
+              "This month"
+            ) : (
+              "Review a card to get started"
+            )
+          }
+        >
+          <CountUp to={stats.cardsReviewedThisMonth} />
         </Tile>
-        <Tile label="Quiz accuracy" delay={110} foot={<span className="text-green-800">{STATS.quizDelta} this month</span>}>
-          <CountUp to={STATS.quizAccuracy} />
-          <span className="serif-accent text-[28px] text-muted">%</span>
+        <Tile label="Quiz accuracy" delay={110} foot={stats.quizAccuracy === null ? "Take a quiz to see it here" : "Across every quiz you’ve taken"}>
+          {stats.quizAccuracy === null ? (
+            <span className="text-muted">—</span>
+          ) : (
+            <>
+              <CountUp to={stats.quizAccuracy} />
+              <span className="serif-accent text-[28px] text-muted">%</span>
+            </>
+          )}
         </Tile>
         <Tile
-          label="Media minutes"
+          label="Credits left"
           delay={160}
           foot={
-            <>
-              <ProgressBar value={(u.mediaMin / u.mediaLimit) * 100} />
-              <span className="mt-2 block">{u.mediaLimit - u.mediaMin} min left · resets {u.resetsOn}</span>
-            </>
+            canUse ? (
+              <>
+                <ProgressBar value={credits.cycleGranted ? (credits.cycleRemaining / credits.cycleGranted) * 100 : 0} />
+                <span className="mt-2 block">{periodEnd ? `Resets ${fmtTsDate(periodEnd)}` : "This cycle"}</span>
+              </>
+            ) : (
+              <Link href="/app/billing" className="link-underline text-ink-soft">
+                Start a plan to get credits
+              </Link>
+            )
           }
         >
-          <CountUp to={u.mediaMin} />
-          <span className="text-[18px] tracking-[-0.02em] text-muted"> / {u.mediaLimit}</span>
+          <CountUp to={credits.balance} />
+          {canUse && <span className="text-[18px] tracking-[-0.02em] text-muted"> / {credits.cycleGranted.toLocaleString("en-US")}</span>}
         </Tile>
         <Tile
-          label="Pages"
+          label="Chat messages left"
           delay={210}
           foot={
-            <>
-              <ProgressBar value={(u.pages / u.pagesLimit) * 100} tone="ink" />
-              <span className="mt-2 block">{u.pagesLimit - u.pages} pages left</span>
-            </>
+            canUse ? (
+              <>
+                <ProgressBar value={chat.allowance ? (chat.remaining / chat.allowance) * 100 : 0} tone="ink" />
+                <span className="mt-2 block">Then 1 credit per message</span>
+              </>
+            ) : (
+              "Included with every plan"
+            )
           }
         >
-          <CountUp to={u.pages} />
-          <span className="text-[18px] tracking-[-0.02em] text-muted"> / {u.pagesLimit}</span>
+          <CountUp to={chat.remaining} />
+          {canUse && <span className="text-[18px] tracking-[-0.02em] text-muted"> / {chat.allowance.toLocaleString("en-US")}</span>}
         </Tile>
       </div>
 
       <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <Heatmap />
-        <WeeklyBars />
+        <Heatmap cells={stats.heatmap} />
+        <WeeklyBars weekly={stats.weekly} />
       </div>
 
       <section className="rise mt-4 rounded-[28px] border border-line bg-card p-5 sm:p-6" style={{ animationDelay: "360ms" }} aria-label="Weak topics">
@@ -207,12 +280,15 @@ export function StatsView() {
             <p className="eyebrow text-[10px]">Weak topics</p>
             <p className="mt-1.5 text-[15px] text-ink-soft">From quiz answers and cards you rated “Again”.</p>
           </div>
-          <Link href="/app/review" className="link-arrow shrink-0 text-[13px] text-red-600">
-            Practise these <ArrowUpRight className="size-3.5" />
-          </Link>
+          {stats.weakTopics.length > 0 && (
+            <Link href="/app/review" className="link-arrow shrink-0 text-[13px] text-red-600">
+              Practise these <ArrowUpRight className="size-3.5" />
+            </Link>
+          )}
         </div>
+        {stats.weakTopics.length === 0 && <p className="mt-5 text-sm text-muted">Nothing yet. Topics you keep missing will show up here.</p>}
         <ul className="mt-5 space-y-4">
-          {STATS.weakTopics.map((w, i) => (
+          {stats.weakTopics.map((w, i) => (
             <li key={w.topic} className="grid grid-cols-[minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 sm:grid-cols-[220px_1fr_48px]">
               <div className="min-w-0">
                 <p className="truncate text-sm text-ink">{w.topic}</p>

@@ -10,14 +10,23 @@ export type Anchor =
   | { kind: "page"; page: number }
   | { kind: "region"; label: string };
 
+export type TaskKind = "homework" | "reading" | "exam" | "project";
+
+export const TASK_KIND_LABELS: Record<TaskKind, string> = {
+  homework: "Homework",
+  reading: "Reading",
+  exam: "Exam",
+  project: "Project",
+};
+
 export type SampleBlock =
   | { type: "fields"; rows: { label: string; value: string }[] }
   | { type: "heading"; text: string; anchor?: Anchor }
   | { type: "paragraph"; text: string; anchor?: Anchor }
   | { type: "bullets"; items: { text: string; anchor?: Anchor }[] }
   | { type: "numbered"; items: { title: string; body: string; anchor?: Anchor }[] }
-  | { type: "actions"; items: { task: string; owner: string; due: string; anchor?: Anchor; done?: boolean }[] }
-  | { type: "decisions"; items: { text: string; anchor?: Anchor }[] }
+  /** Tasks & deadlines: `due` is a display date, or NOT_MENTIONED when none was given */
+  | { type: "tasks"; items: { task: string; kind: TaskKind; due: string; anchor?: Anchor; done?: boolean }[] }
   | { type: "flashcards"; items: { q: string; a: string; anchor?: Anchor }[] }
   | { type: "qa"; items: { q: string; a: string; speaker?: string; anchor?: Anchor }[] }
   | { type: "chapters"; items: { title: string; summary: string; anchor: Anchor }[] }
@@ -26,7 +35,7 @@ export type SampleBlock =
   | { type: "glossary"; items: { term: string; def: string }[] };
 
 export type SampleDoc = {
-  /** Output name shown in the document header, e.g. "Minutes of meeting" */
+  /** Output name shown in the document header, e.g. "Detailed notes" */
   output: string;
   /** Source file or link, shown in mono */
   file: string;

@@ -5,10 +5,10 @@ import { DitherGlow } from "@/components/ui/dither-glow";
 export function CtaPanel({
   title = (
     <>
-      Your next lecture, meeting or paper — <span className="serif-accent">already noted.</span>
+      Your next lecture, podcast or paper — <span className="serif-accent">already noted.</span>
     </>
   ),
-  body = "Start free. 120 media minutes and 50 pages every month, no card required.",
+  body = "Try any plan free for 7 days. Cancel before it ends and you won’t be charged.",
 }: {
   title?: React.ReactNode;
   body?: string;

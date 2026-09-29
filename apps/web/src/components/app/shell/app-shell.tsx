@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { ArrowUpRight, Plus, Search, Sparkles } from "lucide-react";
+import { ArrowUpRight, Plus, Search, Sparkles, User } from "lucide-react";
 import { Logo } from "@/components/ui/logo";
-import { USER } from "@/lib/mock/app-data";
+import { authClient, useCurrentUser } from "@/lib/auth-client";
+import { TRIAL } from "@a2n/shared";
+import { fmtTsDate } from "@/lib/format";
+import { useDueCount, useMe } from "@/lib/queries";
+import { planLabel } from "../billing/billing-view";
 import { Kbd, ProgressBar } from "../ui";
 import { CommandPalette } from "./command-palette";
 import { NAV, isActive } from "./nav-items";
@@ -39,43 +43,71 @@ function SearchTrigger({ onOpen, compact = false }: { onOpen: () => void; compac
   );
 }
 
-function UsageMeter() {
-  const { mediaMin, mediaLimit, pages, pagesLimit, resetsOn } = USER.usage;
+function CreditsMeter() {
+  const { data } = useMe();
+  if (!data)
+    return (
+      <div className="rounded-2xl border border-line bg-card p-3.5" aria-busy="true" aria-label="Loading credits">
+        <div className="skeleton h-2.5 w-16 rounded-full" />
+        <div className="skeleton mt-3 h-1.5 rounded-full" />
+        <div className="skeleton mt-4 h-1.5 rounded-full" />
+      </div>
+    );
+  const b = data.billing;
+  if (!b.canUse) return null;
+  const { credits, chat } = b;
   return (
-    <div className="rounded-2xl border border-line bg-card p-3.5">
+    <Link href="/app/billing" className="block rounded-2xl border border-line bg-card p-3.5 transition-colors hover:border-line-strong focus-visible:outline-2 focus-visible:outline-red-400">
       <div className="flex items-baseline justify-between">
-        <span className="eyebrow text-[10px]">Usage</span>
-        <span className="font-mono text-[10px] text-muted">resets {resetsOn}</span>
+        <span className="eyebrow text-[10px]">{b.status === "trialing" ? "Trial" : "Credits"}</span>
+        {b.periodEnd && (
+          <span className="font-mono text-[10px] text-muted">
+            {b.status === "trialing" ? "ends" : "resets"} {fmtTsDate(b.periodEnd)}
+          </span>
+        )}
       </div>
       <div className="mt-2.5 flex items-baseline justify-between text-[13px]">
-        <span className="text-ink-soft">Media</span>
+        <span className="text-ink-soft">Credits</span>
         <span className="font-mono text-[11px] text-ink tabular-nums">
-          {mediaMin} / {mediaLimit} min
+          {credits.balance.toLocaleString("en-US")} left
         </span>
       </div>
-      <ProgressBar value={(mediaMin / mediaLimit) * 100} className="mt-1.5" />
+      <ProgressBar value={credits.cycleGranted ? (credits.cycleRemaining / credits.cycleGranted) * 100 : 0} className="mt-1.5" />
       <div className="mt-2.5 flex items-baseline justify-between text-[13px]">
-        <span className="text-ink-soft">Pages</span>
+        <span className="text-ink-soft">Chat</span>
         <span className="font-mono text-[11px] text-ink tabular-nums">
-          {pages} / {pagesLimit}
+          {chat.remaining} / {chat.allowance}
         </span>
       </div>
-      <ProgressBar value={(pages / pagesLimit) * 100} className="mt-1.5" tone="ink" />
-    </div>
+      <ProgressBar value={chat.allowance ? (chat.remaining / chat.allowance) * 100 : 0} className="mt-1.5" tone="ink" />
+    </Link>
   );
 }
 
-function UpgradeCard() {
+/** Shown until the account has a usable plan: start the trial, or fix a payment. */
+function PlanCard() {
+  const { data } = useMe();
+  if (!data || data.billing.canUse) return null;
+  const b = data.billing;
+  const payment = b.status === "on_hold" || b.status === "past_due";
   return (
     <div className="relative overflow-hidden rounded-2xl bg-night p-4 text-night-text">
       <div className="dots-night absolute inset-0 opacity-60" aria-hidden />
       <div className="relative">
         <Sparkles className="size-4 text-red-400" aria-hidden />
         <p className="mt-2.5 text-[15px] leading-snug tracking-[-0.02em]">
-          Go <span className="serif-accent text-[18px] text-red-300">Pro</span> for 2,000 min, speaker labels and DOCX exports.
+          {payment ? (
+            "Your last payment didn't go through."
+          ) : b.status === "none" ? (
+            <>
+              Try any plan <span className="serif-accent text-[18px] text-red-300">free</span> for {TRIAL.days} days.
+            </>
+          ) : (
+            "Your plan has ended. Pick one to keep adding notes."
+          )}
         </p>
-        <Link href="/app/settings#billing" className="btn btn-cream btn-sm mt-3.5 w-full">
-          Upgrade
+        <Link href="/app/billing" className="btn btn-cream btn-sm mt-3.5 w-full">
+          {payment ? "Update payment" : b.status === "none" ? "Start free trial" : "See plans"}
           <ArrowUpRight className="btn-arrow size-3.5" />
         </Link>
       </div>
@@ -84,14 +116,23 @@ function UpgradeCard() {
 }
 
 function Avatar({ className = "size-9" }: { className?: string }) {
+  const { firstName } = useCurrentUser();
   return (
-    <span className={`grid shrink-0 place-items-center rounded-full bg-nt-meeting font-medium text-ink ring-1 ring-ink/10 ${className}`}>
-      <span className="serif-accent text-[17px]">{USER.name[0]}</span>
+    <span className={`grid shrink-0 place-items-center rounded-full bg-nt-lecture font-medium text-ink ring-1 ring-ink/10 ${className}`}>
+      {firstName ? <span className="serif-accent text-[17px]">{firstName[0]}</span> : <User className="size-4" strokeWidth={1.7} aria-hidden />}
     </span>
   );
 }
 
+function Badge({ item, className }: { item: (typeof NAV)[number]; className: string }) {
+  const due = useDueCount();
+  if (item.badge !== "due" || due === 0) return null;
+  return <span className={className}>{due > 99 ? "99+" : due}</span>;
+}
+
 function Sidebar({ pathname, onSearch }: { pathname: string; onSearch: () => void }) {
+  const { fullName, email } = useCurrentUser();
+  const { data: me } = useMe();
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-[264px] flex-col border-r border-line bg-paper/80 px-4 pt-5 pb-4 backdrop-blur-xl lg:flex">
       <div className="px-2">
@@ -126,9 +167,7 @@ function Sidebar({ pathname, onSearch }: { pathname: string; onSearch: () => voi
                     strokeWidth={1.8}
                   />
                   <span className="flex-1">{item.label}</span>
-                  {item.badge ? (
-                    <span className="rounded-full bg-red-500 px-1.5 py-px font-mono text-[10px] text-cream tabular-nums">{item.badge}</span>
-                  ) : null}
+                  <Badge item={item} className="rounded-full bg-red-500 px-1.5 py-px font-mono text-[10px] text-cream tabular-nums" />
                   <span
                     aria-hidden
                     className={`size-1.5 rounded-full bg-red-500 transition-all duration-300 ease-[var(--ease-spring)] ${active ? "scale-100 opacity-100" : "scale-0 opacity-0"}`}
@@ -141,16 +180,16 @@ function Sidebar({ pathname, onSearch }: { pathname: string; onSearch: () => voi
       </nav>
 
       <div className="mt-auto space-y-3">
-        <UsageMeter />
-        <UpgradeCard />
+        <CreditsMeter />
+        <PlanCard />
         <Link
           href="/app/settings"
           className="flex items-center gap-3 rounded-full p-1.5 pr-3 transition-colors hover:bg-panel/70 focus-visible:outline-2 focus-visible:outline-red-400"
         >
           <Avatar />
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13px] font-medium">{USER.fullName}</span>
-            <span className="block truncate font-mono text-[10px] tracking-[0.08em] text-muted uppercase">{USER.plan} plan</span>
+            <span className="block truncate text-[13px] font-medium">{fullName || email}</span>
+            <span className="block truncate font-mono text-[10px] tracking-[0.08em] text-muted uppercase">{planLabel(me?.billing)}</span>
           </span>
         </Link>
       </div>
@@ -204,9 +243,7 @@ function MobileTab({ item, active }: { item: (typeof NAV)[number]; active: boole
     >
       <span className="relative">
         <Icon className={`size-5 ${active ? "text-red-500" : ""}`} strokeWidth={1.8} />
-        {item.badge ? (
-          <span className="absolute -top-1 -right-2.5 rounded-full bg-red-500 px-1 font-mono text-[9px] leading-[14px] text-cream">{item.badge}</span>
-        ) : null}
+        <Badge item={item} className="absolute -top-1 -right-2.5 rounded-full bg-red-500 px-1 font-mono text-[9px] leading-[14px] text-cream" />
       </span>
       {item.short}
       <span aria-hidden className={`size-1 rounded-full bg-red-500 transition-transform duration-300 ${active ? "scale-100" : "scale-0"}`} />
@@ -216,6 +253,8 @@ function MobileTab({ item, active }: { item: (typeof NAV)[number]; active: boole
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { data: session, isPending } = authClient.useSession();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const open = useCallback(() => setPaletteOpen(true), []);
 
@@ -229,6 +268,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  useEffect(() => {
+    if (!isPending && !session) router.replace(`/sign-in?next=${encodeURIComponent(pathname)}`);
+  }, [isPending, session, pathname, router]);
+
+  if (!session) return <div className="min-h-dvh bg-paper" aria-busy />;
 
   return (
     <div className="min-h-dvh bg-paper">

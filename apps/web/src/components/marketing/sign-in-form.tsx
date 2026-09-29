@@ -1,33 +1,38 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useId, useState, type FormEvent } from "react";
-import { ArrowLeft, ArrowUpRight, Check, Loader2, Mail, Terminal } from "lucide-react";
-import { AppleLogo, GoogleLogo } from "./brand-icons";
+import { ArrowLeft, ArrowUpRight, Loader2, Mail, Terminal } from "lucide-react";
+import { authClient } from "@/lib/auth-client";
+import { GoogleLogo } from "./brand-icons";
 import { OtpInput } from "./otp-input";
 
-type Step = "email" | "code" | "done";
+type Step = "email" | "code";
 const RESEND_SECONDS = 30;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-/**
- * Mock sign-in: email → 6-digit code → done. Any code except 000000 succeeds.
- * Real auth (Better Auth email OTP + Google + Apple) replaces the timeouts.
- */
-export function SignInForm({ next }: { next: string }) {
+/** Better Auth sign-in: email → 6-digit code, or Google. New emails get an account on first sign-in. */
+export function SignInForm({ next, oauthError }: { next: string; oauthError?: string }) {
+  const router = useRouter();
+  const { data: session } = authClient.useSession();
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
-  const [emailError, setEmailError] = useState<string | null>(null);
+  const [emailError, setEmailError] = useState<string | null>(oauthError ? "Google sign-in didn't finish. Try again, or use your email." : null);
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [codeError, setCodeError] = useState<string | null>(null);
   const [errorKey, setErrorKey] = useState(0);
   const [resendIn, setResendIn] = useState(RESEND_SECONDS);
-  const [provider, setProvider] = useState<string | null>(null);
+  const [redirecting, setRedirecting] = useState(false);
   const [otpKey, setOtpKey] = useState(0);
   const emailId = useId();
   const errId = useId();
   const codeErrId = useId();
+
+  useEffect(() => {
+    if (session) router.replace(next);
+  }, [session, next, router]);
 
   useEffect(() => {
     if (step !== "code" || resendIn <= 0) return;
@@ -35,7 +40,7 @@ export function SignInForm({ next }: { next: string }) {
     return () => clearTimeout(t);
   }, [step, resendIn]);
 
-  const sendCode = (e: FormEvent) => {
+  const sendCode = async (e: FormEvent) => {
     e.preventDefault();
     const value = email.trim();
     if (!EMAIL_RE.test(value)) {
@@ -44,38 +49,52 @@ export function SignInForm({ next }: { next: string }) {
     }
     setEmailError(null);
     setSending(true);
-    setTimeout(() => {
-      setSending(false);
-      setStep("code");
-      setResendIn(RESEND_SECONDS);
-      setCodeError(null);
-    }, 700);
+    const { error } = await authClient.emailOtp.sendVerificationOtp({ email: value, type: "sign-in" });
+    setSending(false);
+    if (error) {
+      setEmailError(error.message ?? "We couldn't send a code. Try again in a moment.");
+      return;
+    }
+    setStep("code");
+    setResendIn(RESEND_SECONDS);
+    setCodeError(null);
   };
 
-  const verify = (code: string) => {
+  const verify = async (code: string) => {
     setVerifying(true);
     setCodeError(null);
-    setTimeout(() => {
+    const { error } = await authClient.signIn.emailOtp({ email: email.trim(), otp: code });
+    if (error) {
       setVerifying(false);
-      if (code === "000000") {
-        setCodeError("That code didn't work. Check the latest email, or send a new code.");
-        setErrorKey((k) => k + 1);
-      } else {
-        setProvider(null);
-        setStep("done");
-      }
-    }, 650);
+      setCodeError(
+        error.code === "TOO_MANY_ATTEMPTS" ? "Too many tries. Send a new code." : "That code didn't work. Check the latest email, or send a new code.",
+      );
+      setErrorKey((k) => k + 1);
+      return;
+    }
+    router.replace(next);
   };
 
-  const resend = () => {
+  const resend = async () => {
     setResendIn(RESEND_SECONDS);
     setCodeError(null);
     setOtpKey((k) => k + 1);
+    const { error } = await authClient.emailOtp.sendVerificationOtp({ email: email.trim(), type: "sign-in" });
+    if (error) setCodeError(error.message ?? "We couldn't send a new code. Try again in a moment.");
   };
 
-  const oauth = (name: string) => {
-    setProvider(name);
-    setStep("done");
+  const google = async () => {
+    setRedirecting(true);
+    const origin = window.location.origin;
+    const { error } = await authClient.signIn.social({
+      provider: "google",
+      callbackURL: `${origin}${next}`,
+      errorCallbackURL: `${origin}/sign-in?error=google&next=${encodeURIComponent(next)}`,
+    });
+    if (error) {
+      setRedirecting(false);
+      setEmailError(error.message ?? "Google sign-in isn't available right now. Use your email instead.");
+    }
   };
 
   return (
@@ -87,7 +106,7 @@ export function SignInForm({ next }: { next: string }) {
             Welcome to your <span className="serif-accent text-red-500">notes.</span>
           </h1>
           <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">
-            New here? The same form creates your account. Free plan, no card needed.
+            New here? The same form creates your account. Every plan starts with a 7-day free trial.
           </p>
 
           <form onSubmit={sendCode} noValidate className="mt-8">
@@ -143,13 +162,9 @@ export function SignInForm({ next }: { next: string }) {
           </div>
 
           <div className="flex flex-col gap-2.5">
-            <button type="button" onClick={() => oauth("Google")} className="btn btn-ghost w-full bg-card/40">
-              <GoogleLogo className="size-[18px]" />
+            <button type="button" onClick={google} disabled={redirecting} className="btn btn-ghost w-full bg-card/40">
+              {redirecting ? <Loader2 className="size-[18px] animate-spin" /> : <GoogleLogo className="size-[18px]" />}
               Continue with Google
-            </button>
-            <button type="button" onClick={() => oauth("Apple")} className="btn btn-ghost w-full bg-card/40">
-              <AppleLogo className="size-[18px]" />
-              Continue with Apple
             </button>
           </div>
         </div>
@@ -210,60 +225,26 @@ export function SignInForm({ next }: { next: string }) {
             )}
           </div>
 
-          <p className="mt-6 flex items-start gap-2.5 rounded-xl border border-dashed border-line-strong bg-card/60 px-3.5 py-3 text-[12px] leading-relaxed text-ink-soft">
-            <Terminal className="mt-0.5 size-3.5 shrink-0 text-red-500" aria-hidden />
-            <span>
-              In local dev the code prints in the API logs.{" "}
-              <span className="text-muted">(This preview accepts any 6 digits except 000000.)</span>
-            </span>
-          </p>
+          {process.env.NODE_ENV === "development" && (
+            <p className="mt-6 flex items-start gap-2.5 rounded-xl border border-dashed border-line-strong bg-card/60 px-3.5 py-3 text-[12px] leading-relaxed text-ink-soft">
+              <Terminal className="mt-0.5 size-3.5 shrink-0 text-red-500" aria-hidden />
+              <span>In local dev the code also prints in the API logs.</span>
+            </p>
+          )}
         </div>
       )}
 
-      {step === "done" && (
-        <div key="done" className="rise">
-          <span className="grid size-14 place-items-center rounded-2xl bg-[image:var(--button-red)] text-cream shadow-[var(--button-shadow)]">
-            <Check className="size-7" strokeWidth={2.5} />
-          </span>
-          <h1 className="mt-8 text-[40px] leading-[1.05] font-normal tracking-[-0.04em]">
-            You&apos;re <span className="serif-accent text-red-500">in.</span>
-          </h1>
-          <p className="mt-3 text-[15px] leading-relaxed text-ink-soft">
-            {provider ? `Signed in with ${provider}.` : `Signed in as ${email.trim()}.`} Your library is ready.
-          </p>
-          <Link href={next} className="btn btn-red btn-lg mt-8 w-full">
-            Continue
-            <ArrowUpRight className="btn-arrow size-4" />
-          </Link>
-          <p className="mt-3 text-center font-mono text-[11px] tracking-[0.08em] text-muted">
-            → <span className="break-all">{next}</span>
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setStep("email");
-              setProvider(null);
-            }}
-            className="mx-auto mt-6 block text-sm text-muted transition-colors hover:text-ink"
-          >
-            Not you? Start over
-          </button>
-        </div>
-      )}
-
-      {step !== "done" && (
-        <p className="mt-8 text-[12px] leading-relaxed text-muted">
-          By continuing you agree to our{" "}
-          <Link href="/terms" className="link-underline text-ink-soft">
-            Terms
-          </Link>{" "}
-          and{" "}
-          <Link href="/privacy" className="link-underline text-ink-soft">
-            Privacy policy
-          </Link>
-          .
-        </p>
-      )}
+      <p className="mt-8 text-[12px] leading-relaxed text-muted">
+        By continuing you agree to our{" "}
+        <Link href="/terms" className="link-underline text-ink-soft">
+          Terms
+        </Link>{" "}
+        and{" "}
+        <Link href="/privacy" className="link-underline text-ink-soft">
+          Privacy policy
+        </Link>
+        .
+      </p>
     </div>
   );
 }

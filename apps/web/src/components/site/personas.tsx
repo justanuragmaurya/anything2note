@@ -12,12 +12,12 @@ const PEOPLE: { art: ArtId; place: string; who: string; line: string; rotate: nu
     uses: ["Lecture notes", "Flashcards", "Quiz"],
   },
   {
-    art: "persona-teamlead",
-    place: "Conference room · Tuesday",
-    who: "The team lead",
-    line: "Back-to-back calls, one person taking notes.",
+    art: "persona-evening-student",
+    place: "Evening class · after work",
+    who: "The working student",
+    line: "Phone on the desk, recording every class.",
     rotate: 1.5,
-    uses: ["Minutes", "Action items", "Follow-up email"],
+    uses: ["Class recordings", "Detailed notes", "Tasks & deadlines"],
   },
   {
     art: "persona-researcher",
