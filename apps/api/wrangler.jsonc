@@ -2,37 +2,53 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "api",
   "main": "src/index.ts",
-  "compatibility_date": "2026-09-27"
-  // "compatibility_flags": [
-  //   "nodejs_compat"
-  // ],
-  // "vars": {
-  //   "MY_VAR": "my-variable"
-  // },
-  // "kv_namespaces": [
-  //   {
-  //     "binding": "MY_KV_NAMESPACE",
-  //     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  //   }
-  // ],
-  // "r2_buckets": [
-  //   {
-  //     "binding": "MY_BUCKET",
-  //     "bucket_name": "my-bucket"
-  //   }
-  // ],
-  // "d1_databases": [
-  //   {
-  //     "binding": "MY_DB",
-  //     "database_name": "my-database",
-  //     "database_id": ""
-  //   }
-  // ],
-  // "ai": {
-  //   "binding": "AI"
-  // },
-  // "observability": {
-  //   "enabled": true,
-  //   "head_sampling_rate": 1
-  // }
+  "compatibility_date": "2026-09-27",
+  "compatibility_flags": ["nodejs_compat"],
+  // No custom domain yet; served from api.<subdomain>.workers.dev.
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "a2n-dev",
+      "database_id": "194d7ef7-6d41-4e40-9582-1a3748174a84",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "a2n-dev",
+      // Clients upload straight to the real bucket with presigned URLs, so local dev reads it too.
+      "remote": true
+    }
+  ],
+  "workflows": [
+    {
+      "name": "process-source",
+      "binding": "PROCESS_SOURCE",
+      "class_name": "ProcessSource"
+    }
+  ],
+  // Non-secret config. Secrets (API keys, auth secret, R2 S3 keys) live in
+  // .dev.vars locally and `wrangler secret put` when deployed.
+  "vars": {
+    "WEB_ORIGIN": "http://localhost:3000",
+    "BETTER_AUTH_URL": "http://localhost:8787",
+    "R2_ACCOUNT_ID": "bd57f70b4e6b19220cb3f9972bb6ba8d",
+    "R2_BUCKET_NAME": "a2n-dev",
+    "LLM_BASE_URL": "https://openrouter.ai/api/v1",
+    "MODEL_NOTES": "xiaomi/mimo-v2.6-flash",
+    "MODEL_LIGHT": "xiaomi/mimo-v2.6-flash",
+    "MODEL_CHAT": "xiaomi/mimo-v2.6-flash",
+    "MODEL_VISION": "xiaomi/mimo-v2.6-flash",
+    "MODEL_FALLBACK": "xiaomi/mimo-v2.6-flash",
+    "STT_BASE_URL": "https://api.groq.com/openai/v1",
+    "STT_MODEL": "whisper-large-v3-turbo",
+    // Temporary sender domain until anything2note.com is bought and verified in Resend.
+    "EMAIL_FROM": "anything2note <noreply@anuragmaurya.com>"
+  }
 }

@@ -1,0 +1,18 @@
+# Local Worker secrets. Copy to .dev.vars and fill in. Never commit .dev.vars.
+LLM_API_KEY=
+STT_API_KEY=
+BETTER_AUTH_SECRET=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# R2 S3 API token (dashboard → R2 → Manage API tokens), used for presigned uploads
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+# Resend (resend.com → API Keys, "Sending access"); sender domain anuragmaurya.com for now
+RESEND_API_KEY=
+# prod/production uses the Dodo live keys and live products; anything else uses test mode.
+NODE_ENV=development
+# Dodo Payments (dashboard → Developer → API Keys / Webhooks), one pair per mode
+DODO_PAYMENTS_TEST_API_KEY=
+DODO_PAYMENTS_TEST_WEBHOOK_KEY=
+DODO_PAYMENTS_LIVE_API_KEY=
+DODO_PAYMENTS_LIVE_WEBHOOK_KEY=
