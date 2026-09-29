@@ -1,60 +1,169 @@
 import { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Alert, Linking, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { router } from "expo-router";
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+  type RecordingOptions,
+} from "expo-audio";
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from "react-native-reanimated";
+import { UPLOAD_LIMITS, type SourceKind } from "@a2n/shared";
 import { LiveWaveform } from "@/components/add/LiveWaveform";
 import { RecordButton } from "@/components/add/RecordButton";
 import { SourceTile } from "@/components/add/SourceTile";
-import { Body, Button, Display, Eyebrow, Icon, PressableScale, Rise, Screen, SerifAccent, Small } from "@/components/ui";
+import { Button, Display, Eyebrow, Icon, PressableScale, Rise, Screen, SerifAccent, Small } from "@/components/ui";
+import { errorMessage } from "@/lib/api";
+import { isYouTube, normaliseUrl, pickDocument, pickPhoto, recordingDraft, setDraft, type Draft } from "@/lib/draft";
 import { fmtTime } from "@/lib/format";
 import { haptic } from "@/lib/haptics";
-import type { SourceKind } from "@/lib/mock/types";
+import { showMenu } from "@/lib/menu";
 import { fontFamily, palette } from "@/theme";
 
 type RecState = "idle" | "recording" | "paused";
 type Paste = "link" | "text" | null;
 
-function startFlow(source: SourceKind, label: string) {
+/**
+ * Mono AAC at 48 kbps: plenty for speech, and a full 60-minute free recording (~21 MB) stays
+ * under the API's 25 MB media limit. Metering drives the live waveform.
+ */
+const REC_OPTIONS: RecordingOptions = { ...RecordingPresets.HIGH_QUALITY, numberOfChannels: 1, bitRate: 48_000, isMeteringEnabled: true };
+const MAX_MS = UPLOAD_LIMITS.maxRecordingSeconds * 1000;
+/** Text under this length is rejected by the API ("Paste at least a few sentences."). */
+const MIN_TEXT = 20;
+
+function startFlow(draft: Draft, source: SourceKind, label: string) {
+  setDraft(draft);
   router.push({ pathname: "/new/type", params: { source, label } });
 }
 
+/** Metering is dBFS (about -160 silent … 0 loudest); speech sits roughly between -50 and -10. */
+const level = (db: number | undefined) => (db === undefined ? 0 : Math.min(1, Math.max(0, (db + 55) / 45)));
+
 export default function Add() {
+  const recorder = useAudioRecorder(REC_OPTIONS);
+  const recState = useAudioRecorderState(recorder, 100);
   const [rec, setRec] = useState<RecState>("idle");
-  const [seconds, setSeconds] = useState(0);
   const [consent, setConsent] = useState(true);
   const [paste, setPaste] = useState<Paste>(null);
   const [value, setValue] = useState("");
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (rec !== "recording") return;
-    const id = setInterval(() => setSeconds((s) => s + 1), 1000);
-    return () => clearInterval(id);
-  }, [rec]);
+  const seconds = Math.floor(recState.durationMillis / 1000);
 
-  const toggleMain = () => {
-    if (rec === "idle") {
-      haptic.heavy();
-      setSeconds(0);
-      setRec("recording");
+  const start = async () => {
+    const perm = await requestRecordingPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Microphone is off", "Allow microphone access in Settings to record lectures.", [
+        { text: "Not now", style: "cancel" },
+        { text: "Open Settings", onPress: () => void Linking.openSettings() },
+      ]);
       return;
     }
-    stop();
+    try {
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true, allowsBackgroundRecording: true });
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      haptic.heavy();
+      setRec("recording");
+    } catch (e) {
+      Alert.alert("Couldn't start recording", errorMessage(e));
+    }
   };
-  const stop = () => {
+
+  const stop = async () => {
+    try {
+      await recorder.stop();
+    } finally {
+      setRec("idle");
+      // Hand the audio session back to playback (and the loudspeaker).
+      void setAudioModeAsync({ allowsRecording: false, allowsBackgroundRecording: false });
+    }
+    const uri = recorder.uri;
+    if (!uri) return Alert.alert("Recording failed", "Nothing was saved. Try recording again.");
+    if (recState.durationMillis < 2000) return Alert.alert("Too short", "Record at least a couple of seconds.");
     haptic.success();
-    const len = seconds;
-    setRec("idle");
-    setSeconds(0);
-    startFlow("recording", `Recording · ${fmtTime(Math.max(len, 1))}`);
+    try {
+      startFlow(recordingDraft(uri), "recording", `Recording · ${fmtTime(seconds)}`);
+    } catch (e) {
+      Alert.alert("Can't use this recording", errorMessage(e));
+    }
   };
+
+  // Free recordings stop at the 60-minute limit rather than fail after upload.
+  useEffect(() => {
+    if (rec === "recording" && recState.durationMillis >= MAX_MS) void stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rec, recState.durationMillis]);
+
+  const toggleMain = () => {
+    if (rec === "idle") void start();
+    else void stop();
+  };
+
+  const pauseResume = () => {
+    haptic.tap();
+    if (rec === "paused") {
+      recorder.record();
+      setRec("recording");
+    } else {
+      recorder.pause();
+      setRec("paused");
+    }
+  };
+
+  /** Runs a picker; a thrown error is a user-facing reason the file can't be used. */
+  const pick = async (fn: () => Promise<Draft | null>) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const d = await fn();
+      if (d && d.type === "upload") startFlow(d, d.kind, d.file.name);
+    } catch (e) {
+      Alert.alert("Can't use that file", errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const photo = () =>
+    showMenu("Add a photo", [
+      { label: "Take photo", onPress: () => void pick(() => pickPhoto("camera")) },
+      { label: "Choose from library", onPress: () => void pick(() => pickPhoto("library")) },
+    ]);
+
+  const youTube = paste === "link" && isYouTube(value.trim());
 
   const submitPaste = () => {
     const v = value.trim();
     if (!v) return haptic.warn();
-    setPaste(null);
-    setValue("");
-    if (paste === "link") startFlow(v.includes("youtu") ? "youtube" : "link", v.replace(/^https?:\/\//, "").slice(0, 40));
-    else startFlow("text", `Pasted text · ${v.split(/\s+/).length} words`);
+    if (paste === "link") {
+      if (youTube) return haptic.warn();
+      const url = normaliseUrl(v);
+      if (!url) {
+        haptic.warn();
+        return setPasteError("That doesn't look like a web link.");
+      }
+      setPaste(null);
+      setValue("");
+      startFlow({ type: "url", url }, "web", new URL(url).hostname.replace(/^www\./, ""));
+    } else {
+      if (v.length < MIN_TEXT) {
+        haptic.warn();
+        return setPasteError("Paste at least a few sentences.");
+      }
+      setPaste(null);
+      setValue("");
+      startFlow({ type: "text", text: v }, "text", `Pasted text · ${v.split(/\s+/).length} words`);
+    }
+  };
+
+  const openPaste = (p: Exclude<Paste, null>) => {
+    setPasteError(null);
+    setPaste(paste === p ? null : p);
   };
 
   const live = rec !== "idle";
@@ -68,12 +177,11 @@ export default function Add() {
         </Display>
       </Rise>
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
-
         {consent ? (
           <Animated.View entering={FadeInDown.delay(80)} exiting={FadeOut.duration(180)} layout={LinearTransition} style={styles.consent}>
             <Icon name="shield" size={18} color={palette.red600} />
             <Small style={{ flex: 1, color: palette.inkSoft }}>
-              Recording other people? Tell them first. Some places require everyone&apos;s consent.
+              Recording a class? Check that your lecturer or institution allows it first.
             </Small>
             <PressableScale onPress={() => setConsent(false)} hitSlop={10} accessibilityLabel="Dismiss">
               <Icon name="close" size={14} color={palette.muted} />
@@ -84,31 +192,24 @@ export default function Add() {
         <Animated.View layout={LinearTransition.springify().damping(18)} style={styles.recorder}>
           <RecordButton state={rec} onPress={toggleMain} />
           <Animated.Text key={live ? "t" : "i"} entering={FadeIn} style={[styles.timer, live && { color: palette.ink }]}>
-            {live ? fmtTime(seconds) : "Tap to record"}
+            {live ? fmtTime(seconds) : "Tap to record a lecture"}
           </Animated.Text>
           {live ? (
             <Animated.View entering={FadeIn} exiting={FadeOut.duration(150)} style={{ alignSelf: "stretch", paddingHorizontal: 28, marginTop: 12 }}>
-              <LiveWaveform active={rec === "recording"} height={40} />
+              <LiveWaveform active={rec === "recording"} level={level(recState.metering)} at={recState.durationMillis} height={40} />
             </Animated.View>
           ) : null}
           {live ? (
             <Animated.View entering={FadeInDown.springify().damping(16)} exiting={FadeOut.duration(150)} style={styles.controls}>
-              <Button
-                variant="ghost"
-                leadingIcon={rec === "paused" ? "mic" : "pause"}
-                onPress={() => {
-                  haptic.tap();
-                  setRec(rec === "paused" ? "recording" : "paused");
-                }}
-              >
+              <Button variant="ghost" leadingIcon={rec === "paused" ? "mic" : "pause"} onPress={pauseResume}>
                 {rec === "paused" ? "Resume" : "Pause"}
               </Button>
-              <Button variant="ink" leadingIcon="stop" onPress={stop}>
+              <Button variant="ink" leadingIcon="stop" onPress={() => void stop()}>
                 Stop & make notes
               </Button>
             </Animated.View>
           ) : (
-            <Small style={{ marginTop: 6, textAlign: "center", paddingHorizontal: 28 }}>Records with the screen locked · 60 min max on Free</Small>
+            <Small style={{ marginTop: 6, textAlign: "center", paddingHorizontal: 28 }}>Keeps recording with the screen locked · 60 min max on Free</Small>
           )}
           {rec === "paused" ? (
             <Animated.View entering={FadeIn} exiting={FadeOut}>
@@ -123,12 +224,12 @@ export default function Add() {
           <Eyebrow style={{ marginBottom: 12 }}>Or bring something in</Eyebrow>
           <View style={styles.grid}>
             <View style={styles.row}>
-              <SourceTile icon="upload" title="Upload file" hint="Audio, video, PDF, slides" tint={palette.tutorial} onPress={() => startFlow("upload", "lecture-week-3.mp4")} />
-              <SourceTile icon="camera" title="Photo" hint="Whiteboards, handouts, pages" tint={palette.lecture} onPress={() => startFlow("photo", "IMG_2107.heic")} />
+              <SourceTile icon="upload" title="Upload file" hint="PDF, Word, slides · audio & video to 25 MB" tint={palette.tutorial} onPress={() => void pick(pickDocument)} />
+              <SourceTile icon="camera" title="Photo" hint="Whiteboards, handouts, pages" tint={palette.lecture} onPress={photo} />
             </View>
             <View style={styles.row}>
-              <SourceTile icon="link" title="Paste link" hint="YouTube, podcasts, articles" tint={palette.meeting} onPress={() => setPaste(paste === "link" ? null : "link")} />
-              <SourceTile icon="paste" title="Paste text" hint="Notes, emails, transcripts" tint={palette.podcast} onPress={() => setPaste(paste === "text" ? null : "text")} />
+              <SourceTile icon="link" title="Paste link" hint="Articles and web pages" tint={palette.interview} onPress={() => openPaste("link")} />
+              <SourceTile icon="paste" title="Paste text" hint="Notes, emails, transcripts" tint={palette.podcast} onPress={() => openPaste("text")} />
             </View>
           </View>
 
@@ -138,28 +239,36 @@ export default function Add() {
               <TextInput
                 autoFocus
                 value={value}
-                onChangeText={setValue}
-                placeholder={paste === "link" ? "https://youtube.com/watch?v=…" : "Paste or type anything…"}
+                onChangeText={(v) => {
+                  setValue(v);
+                  setPasteError(null);
+                }}
+                placeholder={paste === "link" ? "https://…" : "Paste or type anything…"}
                 placeholderTextColor={palette.muted}
                 multiline={paste === "text"}
                 autoCapitalize={paste === "link" ? "none" : "sentences"}
+                autoCorrect={paste !== "link"}
                 keyboardType={paste === "link" ? "url" : "default"}
-                style={[styles.pasteInput, paste === "text" && { minHeight: 110, textAlignVertical: "top" }]}
+                style={[styles.pasteInput, paste === "text" && { minHeight: 110, maxHeight: 240, textAlignVertical: "top" }]}
               />
+              {youTube ? (
+                <View style={styles.notice}>
+                  <Icon name="youtube" size={15} color={palette.red600} />
+                  <Small style={{ flex: 1, color: palette.inkSoft }}>YouTube links are coming soon. For now, paste an article or web page.</Small>
+                </View>
+              ) : pasteError ? (
+                <Small style={{ color: palette.red600 }}>{pasteError}</Small>
+              ) : null}
               <View style={{ flexDirection: "row", justifyContent: "flex-end", gap: 8 }}>
                 <Button variant="ghost" size="sm" onPress={() => setPaste(null)}>
                   Cancel
                 </Button>
-                <Button size="sm" icon="arrowRight" onPress={submitPaste}>
+                <Button size="sm" icon="arrowRight" onPress={submitPaste} disabled={youTube}>
                   Continue
                 </Button>
               </View>
             </Animated.View>
           ) : null}
-
-          <Body style={{ marginTop: 18, fontSize: 13, textAlign: "center", color: palette.muted }}>
-            Tip: share a link or file to anything2note from any app.
-          </Body>
         </Rise>
       </ScrollView>
     </Screen>
@@ -197,4 +306,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
+  notice: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 12, backgroundColor: palette.red50 },
 });

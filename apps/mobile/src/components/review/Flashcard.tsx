@@ -3,19 +3,27 @@ import { StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { scheduleOnRN } from "react-native-worklets";
 import Animated, { interpolate, useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
-import { Body, Eyebrow, SerifAccent, Small, TimestampChip } from "@/components/ui";
-import type { Flashcard as Card } from "@/lib/mock/types";
+import type { Anchor, Flashcard as Card, Rating } from "@a2n/shared";
+import { AnchorChip, Body, Eyebrow, SerifAccent, Small } from "@/components/ui";
 import { palette, spring } from "@/theme";
 
-export type Rating = "again" | "hard" | "good" | "easy";
+export type { Rating };
 export type FlashcardHandle = { fling: (r: Rating) => void; flip: () => void };
 
 type Props = {
-  card: Card;
+  card: Pick<Card, "front" | "back" | "anchor">;
   index: number;
   total: number;
   source: string;
   onRated: (r: Rating) => void;
+  /** Where tapping the card's source chip goes (the item screen provides its own). */
+  onAnchor?: (a: Anchor) => void;
+  /** Front colour; the note type's by default at the call site. */
+  tint?: string;
+  /** Footer hint on the answer side. */
+  backHint?: string;
+  /** Show the Good / Again stamps while swiping (off when swipes aren't ratings). */
+  stamps?: boolean;
   onFlip?: (flipped: boolean) => void;
   width: number;
   /** Defaults to a tall 1 : 1.12 card. */
@@ -28,7 +36,10 @@ const SWIPE = 110;
  * 3D flip card (rotateY with backface hidden). Tap flips; once flipped, swipe
  * right = Good, left = Again, up = Easy. Buttons call `fling` via the ref.
  */
-export const Flashcard = forwardRef<FlashcardHandle, Props>(function Flashcard({ card, index, total, source, onRated, onFlip, width, height }, ref) {
+export const Flashcard = forwardRef<FlashcardHandle, Props>(function Flashcard(
+  { card, index, total, source, onRated, onAnchor, tint, backHint = "Swipe or rate below", stamps = true, onFlip, width, height },
+  ref,
+) {
   const rot = useSharedValue(0); // 0 front, 180 back
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
@@ -93,12 +104,12 @@ export const Flashcard = forwardRef<FlashcardHandle, Props>(function Flashcard({
   return (
     <GestureDetector gesture={gesture}>
       <Animated.View style={[{ width, height: height ?? width * 1.12 }, wrap]}>
-        <Animated.View style={[styles.face, styles.front, front]}>
+        <Animated.View style={[styles.face, styles.front, tint ? { backgroundColor: tint } : null, front]}>
           <Eyebrow color={alphaInk}>
             Card {index + 1} / {total}
           </Eyebrow>
-          <SerifAccent upright color={palette.ink} size={30} style={{ lineHeight: 36 }}>
-            {card.q}
+          <SerifAccent upright color={palette.ink} size={30} style={{ lineHeight: 36 }} numberOfLines={7} adjustsFontSizeToFit minimumFontScale={0.6}>
+            {card.front}
           </SerifAccent>
           <View style={styles.footer}>
             <Small style={{ color: alphaInk }}>Tap to flip</Small>
@@ -110,19 +121,23 @@ export const Flashcard = forwardRef<FlashcardHandle, Props>(function Flashcard({
 
         <Animated.View style={[styles.face, styles.back, back]}>
           <Eyebrow color={palette.nightMuted}>Answer</Eyebrow>
-          <Body style={{ color: palette.nightText, fontSize: 20, lineHeight: 28 }}>{card.a}</Body>
+          <Body style={{ color: palette.nightText, fontSize: 20, lineHeight: 28 }} numberOfLines={9} adjustsFontSizeToFit minimumFontScale={0.6}>{card.back}</Body>
           <View style={styles.footer}>
-            <TimestampChip at={card.at} tone="night" />
-            <Small style={{ color: palette.nightMuted }}>Swipe or rate below</Small>
+            {card.anchor ? <AnchorChip anchor={card.anchor} onPress={onAnchor} tone="night" /> : <View />}
+            <Small style={{ color: palette.nightMuted }}>{backHint}</Small>
           </View>
         </Animated.View>
 
-        <Animated.View pointerEvents="none" style={[styles.stamp, styles.stampGood, goodHint]}>
-          <Eyebrow color={palette.success}>Good</Eyebrow>
-        </Animated.View>
-        <Animated.View pointerEvents="none" style={[styles.stamp, styles.stampAgain, againHint]}>
-          <Eyebrow color={palette.red600}>Again</Eyebrow>
-        </Animated.View>
+        {stamps ? (
+          <>
+            <Animated.View pointerEvents="none" style={[styles.stamp, styles.stampGood, goodHint]}>
+              <Eyebrow color={palette.success}>Good</Eyebrow>
+            </Animated.View>
+            <Animated.View pointerEvents="none" style={[styles.stamp, styles.stampAgain, againHint]}>
+              <Eyebrow color={palette.red600}>Again</Eyebrow>
+            </Animated.View>
+          </>
+        ) : null}
       </Animated.View>
     </GestureDetector>
   );

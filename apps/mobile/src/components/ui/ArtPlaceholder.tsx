@@ -12,8 +12,8 @@ export type ArtId = "empty-library" | "empty-review" | "empty-actions" | "onboar
 export const ART: Record<ArtId, { label: string; aspect: number; tint: string }> = {
   "empty-library": { label: "Empty box with a blank page floating above it", aspect: 0.924, tint: palette.lecture },
   "empty-review": { label: "Stretching next to a finished stack of flashcards", aspect: 1.282, tint: palette.podcast },
-  "empty-actions": { label: "Clipboard with every box ticked", aspect: 1.439, tint: palette.meeting },
-  "onboarding-1": { label: "A video, cassette, page and photo pulled into a phone", aspect: 1.51, tint: palette.meeting },
+  "empty-actions": { label: "Clipboard with every task ticked", aspect: 1.439, tint: palette.reading },
+  "onboarding-1": { label: "A video, cassette, page and photo pulled into a phone", aspect: 1.51, tint: palette.tutorial },
   "onboarding-2": { label: "A recording turning into neat lines of notes", aspect: 1.848, tint: palette.lecture },
   "onboarding-3": { label: "Flipping a flashcard beside a streak calendar", aspect: 1.284, tint: palette.interview },
 };

@@ -1,26 +1,49 @@
 import { useEffect } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { router } from "expo-router";
 import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
-import { Icon, PressableScale, Small, TimestampChip } from "@/components/ui";
-import type { ActionItem } from "@/lib/mock/types";
-import { fontFamily, palette } from "@/theme";
+import type { Anchor, Task, TaskKind } from "@a2n/shared";
+import { AnchorChip, Icon, PressableScale, Small } from "@/components/ui";
+import { fmtDue } from "@/lib/format";
+import { alpha, fontFamily, palette } from "@/theme";
 
-type Props = { item: ActionItem; onToggle: () => void; source?: string; showSource?: boolean };
+type Props = {
+  item: Task;
+  onToggle: () => void;
+  source?: string;
+  showSource?: boolean;
+  /** Where the anchor chip goes; inside the item screen the chip uses the screen's own handler. */
+  onAnchor?: (a: Anchor) => void;
+};
 
-/** Owner / due pill. Missing values are simply left out so rows stay quiet. */
-function Meta({ icon, value }: { icon: "person" | "calendar"; value: string | null }) {
-  if (value === null) return null;
+const KIND: Record<TaskKind, { label: string; tint: string }> = {
+  homework: { label: "Homework", tint: palette.lecture },
+  reading: { label: "Reading", tint: palette.reading },
+  exam: { label: "Exam", tint: palette.red200 },
+  project: { label: "Project", tint: palette.tutorial },
+};
+
+/** What kind of task the lecturer set: homework, a reading, an exam or project work. */
+function KindChip({ kind }: { kind: TaskKind }) {
+  const k = KIND[kind];
   return (
-    <View style={styles.meta}>
-      <Icon name={icon} size={11} color={palette.muted} />
-      <Text style={styles.metaText}>{value}</Text>
+    <View style={[styles.kind, { backgroundColor: alpha(k.tint, 0.6) }]}>
+      <Text style={styles.kindText}>{k.label}</Text>
     </View>
   );
 }
 
-/** Action item with an animated tick (checkbox scale-in); done tasks fade to muted and strike through. */
-export function ActionRow({ item, onToggle, source, showSource = true }: Props) {
+/** Due pill. A deadline the lecturer never gave shows as "Not mentioned" rather than a guess. */
+function Due({ value }: { value: string | null }) {
+  return (
+    <View style={styles.meta}>
+      <Icon name="calendar" size={11} color={palette.muted} />
+      <Text style={[styles.metaText, value === null && styles.metaMissing]}>{value ? fmtDue(value) : "Not mentioned"}</Text>
+    </View>
+  );
+}
+
+/** Task from class with an animated tick (checkbox scale-in); done tasks fade to muted and strike through. */
+export function TaskRow({ item, onToggle, source, showSource = true, onAnchor }: Props) {
   const v = useSharedValue(item.done ? 1 : 0);
   useEffect(() => {
     v.set(withTiming(item.done ? 1 : 0, { duration: 260 }));
@@ -47,9 +70,9 @@ export function ActionRow({ item, onToggle, source, showSource = true }: Props) 
       <View style={{ flex: 1, gap: 8 }}>
         <Animated.Text style={[styles.task, item.done && styles.taskDone, text]}>{item.task}</Animated.Text>
         <View style={styles.metaRow}>
-          <Meta icon="person" value={item.owner} />
-          <Meta icon="calendar" value={item.due} />
-          <TimestampChip at={item.at} onSeek={(s) => router.push({ pathname: "/item/[id]", params: { id: item.itemId, t: String(s) } })} />
+          <KindChip kind={item.kind} />
+          <Due value={item.due} />
+          {item.anchor ? <AnchorChip anchor={item.anchor} onPress={onAnchor} /> : null}
         </View>
         {showSource && source ? (
           <Small numberOfLines={1} style={{ fontSize: 12 }}>
@@ -78,4 +101,7 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },
   meta: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: palette.panel },
   metaText: { fontFamily: fontFamily.sans, fontSize: 12, color: palette.inkSoft },
+  metaMissing: { fontFamily: fontFamily.serifItalic, fontSize: 13, color: palette.muted },
+  kind: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  kindText: { fontFamily: fontFamily.monoMedium, fontSize: 10, letterSpacing: 0.8, textTransform: "uppercase", color: palette.ink },
 });

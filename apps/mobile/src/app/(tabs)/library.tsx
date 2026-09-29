@@ -2,27 +2,44 @@ import { useMemo, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import Animated, { LinearTransition } from "react-native-reanimated";
-import { ItemCard } from "@/components/library/ItemCard";
-import { ArtPlaceholder, Body, Button, Chip, Display, Eyebrow, Icon, PressableScale, Rise, Screen, SerifAccent } from "@/components/ui";
+import { ItemCard, detecting } from "@/components/library/ItemCard";
+import { ArtPlaceholder, Body, Button, Chip, Display, Eyebrow, Icon, PressableScale, Rise, Screen, SerifAccent, Skeleton } from "@/components/ui";
+import { errorMessage } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
-import { ITEMS } from "@/lib/mock/items";
 import { NOTE_TYPES, type NoteTypeKey } from "@/lib/note-types";
+import { isWorking, useLibrary } from "@/lib/queries";
 import { fontFamily, palette } from "@/theme";
 
 export default function Library() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<NoteTypeKey | "all">("all");
   const [refreshing, setRefreshing] = useState(false);
+  const library = useLibrary();
+  const all = library.data?.items;
 
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return ITEMS.filter((i) => (filter === "all" || i.type === filter) && (!q || i.title.toLowerCase().includes(q) || i.sourceLabel.includes(q)));
-  }, [query, filter]);
+    return (all ?? []).filter(
+      (i) =>
+        (filter === "all" || (i.noteType === filter && !detecting(i))) &&
+        (!q || i.title.toLowerCase().includes(q) || i.sourceLabel.toLowerCase().includes(q)),
+    );
+  }, [all, query, filter]);
 
-  const refresh = () => {
+  const processing = (all ?? []).filter((i) => isWorking(i.status)).length;
+  const summary = !all
+    ? library.isError
+      ? "Offline"
+      : "Loading…"
+    : all.length
+      ? `${all.length} ${all.length === 1 ? "item" : "items"}${processing ? ` · ${processing} processing` : ""}`
+      : "No items yet";
+
+  const refresh = async () => {
     setRefreshing(true);
     haptic.tap();
-    setTimeout(() => setRefreshing(false), 900);
+    await library.refetch();
+    setRefreshing(false);
   };
 
   return (
@@ -30,7 +47,7 @@ export default function Library() {
       {/* Header, search and filters stay put; only the list scrolls. */}
       <View style={styles.header}>
         <Rise className="px-5 pt-4">
-          <Eyebrow>{ITEMS.length} items · 2 processing</Eyebrow>
+          <Eyebrow>{summary}</Eyebrow>
           <Display size={44} style={{ marginTop: 6 }}>
             Your <SerifAccent size={50}>library</SerifAccent>
           </Display>
@@ -41,7 +58,7 @@ export default function Library() {
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Search notes, transcripts, files"
+            placeholder="Search titles and sources"
             placeholderTextColor={palette.muted}
             returnKeyType="search"
             clearButtonMode="while-editing"
@@ -64,20 +81,37 @@ export default function Library() {
         itemLayoutAnimation={LinearTransition.springify().damping(18)}
         contentContainerStyle={{ paddingTop: 12, paddingBottom: 32, gap: 10 }}
         keyboardDismissMode="on-drag"
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={palette.red500} colors={[palette.red500]} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={palette.red500} colors={[palette.red500]} />}
         renderItem={({ item, index }) => (
           <Rise index={Math.min(index, 6)} delay={140} className="px-5">
             <ItemCard item={item} />
           </Rise>
         )}
         ListEmptyComponent={
+          library.isPending ? (
+            <View style={{ gap: 10, paddingHorizontal: 20 }}>
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} height={96} radius={22} />
+              ))}
+            </View>
+          ) : !all ? (
+            <Rise className="items-center px-8 pt-10">
+              <Display size={26} style={{ textAlign: "center" }}>
+                Couldn&apos;t load your <SerifAccent size={30}>library</SerifAccent>.
+              </Display>
+              <Body style={{ textAlign: "center", marginTop: 8 }}>{errorMessage(library.error)}</Body>
+              <Button style={{ marginTop: 18 }} variant="ink" leadingIcon="refresh" loading={library.isFetching} onPress={() => void library.refetch()}>
+                Try again
+              </Button>
+            </Rise>
+          ) : (
           <Rise className="items-center px-8 pt-6">
             <ArtPlaceholder id="empty-library" width={260} />
             <Display size={28} style={{ marginTop: 20, textAlign: "center" }}>
               Nothing here <SerifAccent size={32}>yet</SerifAccent>.
             </Display>
             <Body style={{ textAlign: "center", marginTop: 8 }}>
-              {query || filter !== "all" ? "No items match. Try another filter or search." : "Record a meeting, paste a link or upload a PDF."}
+              {query || filter !== "all" ? "No items match. Try another filter or search." : "Record a lecture, paste a link or upload a PDF to make your first notes."}
             </Body>
             <View className="mt-5 flex-row gap-2">
               {query || filter !== "all" ? (
@@ -96,6 +130,7 @@ export default function Library() {
               </Button>
             </View>
           </Rise>
+          )
         }
         ListFooterComponent={
           items.length ? (

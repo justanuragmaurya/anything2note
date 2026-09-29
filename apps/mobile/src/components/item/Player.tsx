@@ -1,76 +1,84 @@
 import { useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import type { AudioPlayer, AudioStatus } from "expo-audio";
 import Animated, { useAnimatedStyle, withSpring } from "react-native-reanimated";
 import { NightDots } from "@/components/note-type/NoteTypeShape";
 import { Eyebrow, Icon, Mono, PressableScale } from "@/components/ui";
-import { fmtTime, wave } from "@/lib/format";
+import { fmtTime } from "@/lib/format";
+import { haptic } from "@/lib/haptics";
 import { palette, spring } from "@/theme";
 
-const BARS = 56;
-const HEIGHT = 136;
+const HEIGHT = 112;
 
 type Props = {
-  duration: number;
-  time: number;
-  playing: boolean;
-  onToggle: () => void;
-  onSeek: (s: number) => void;
-  seed?: number;
+  player: AudioPlayer;
+  status: AudioStatus;
+  /** From the API, shown until the stream reports its own duration. */
+  durationHint?: number;
   label: string;
-  isDocument?: boolean;
+  /** Video sources play their soundtrack here. */
+  video?: boolean;
 };
 
-/** Mock source player: night panel, dotted grid, waveform (tap to seek), cream play button. */
-export function Player({ duration, time, playing, onToggle, onSeek, seed = 0, label, isDocument }: Props) {
+/** The item's own recording or upload, streamed: night panel, dotted grid, tap-to-seek track, cream play button. */
+export function Player({ player, status, durationHint, label, video }: Props) {
   const [w, setW] = useState(0);
-  const progress = duration ? time / duration : 0;
+  const [trackW, setTrackW] = useState(0);
+  const duration = status.duration || durationHint || 0;
+  const time = status.currentTime;
+  const progress = duration ? Math.min(1, time / duration) : 0;
+  const playing = status.playing;
   const knob = useAnimatedStyle(() => ({ transform: [{ scale: withSpring(playing ? 1 : 0.92, spring) }] }));
+
+  const seek = (s: number) => {
+    haptic.select();
+    void player.seekTo(Math.min(Math.max(0, s), duration || s));
+  };
+  const toggle = () => {
+    if (playing) return player.pause();
+    // Replay from the start once it has finished.
+    if (duration && time >= duration - 0.5) void player.seekTo(0);
+    player.play();
+  };
 
   return (
     <View style={styles.panel} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
       {w ? <NightDots width={w} height={HEIGHT} /> : null}
       <View style={styles.top}>
         <Eyebrow color={palette.nightMuted} numberOfLines={1} style={{ flex: 1 }}>
-          {label}
+          {video ? `${label} · audio` : label}
         </Eyebrow>
         <View style={[styles.live, playing && { backgroundColor: palette.red500 }]} />
       </View>
 
-      {isDocument ? (
-        <View style={styles.docWrap}>
-          {[0.92, 0.8, 0.86, 0.6].map((f, i) => (
-            <View key={i} style={[styles.docLine, { width: `${f * 100}%` }]} />
-          ))}
-        </View>
-      ) : (
-        <Pressable
-          style={styles.wave}
-          onPress={(e) => {
-            if (w) onSeek(Math.round((e.nativeEvent.locationX / (w - 40)) * duration));
-          }}
-          accessibilityLabel="Seek"
-        >
-          {Array.from({ length: BARS }).map((_, i) => {
-            const played = i / BARS <= progress;
-            return <View key={i} style={[styles.bar, { height: `${18 + wave(i, seed) * 82}%`, backgroundColor: played ? palette.red400 : "rgba(243,230,225,0.2)" }]} />;
-          })}
-        </Pressable>
-      )}
-
       <View style={styles.controls}>
-        <PressableScale onPress={() => onSeek(Math.max(0, time - 10))} haptics="tap" hitSlop={8} accessibilityLabel="Back 10 seconds">
+        <PressableScale onPress={() => seek(time - 10)} haptics="tap" hitSlop={8} accessibilityLabel="Back 10 seconds">
           <Icon name="retry" size={18} color={palette.nightMuted} />
         </PressableScale>
-        <PressableScale onPress={onToggle} haptics="press" scaleTo={0.9} accessibilityLabel={playing ? "Pause" : "Play"}>
+        <PressableScale onPress={toggle} disabled={!status.isLoaded} haptics="press" scaleTo={0.9} accessibilityLabel={playing ? "Pause" : "Play"}>
           <Animated.View style={[styles.play, knob]}>
-            <Icon name={playing ? "pause" : "play"} size={17} color={palette.ink} weight="bold" />
+            {!status.isLoaded || status.isBuffering ? (
+              <ActivityIndicator size="small" color={palette.ink} />
+            ) : (
+              <Icon name={playing ? "pause" : "play"} size={17} color={palette.ink} weight="bold" />
+            )}
           </Animated.View>
         </PressableScale>
         <Mono style={{ color: palette.nightMuted, fontSize: 11 }}>{fmtTime(time)}</Mono>
-        <View style={styles.track}>
-          <View style={[styles.fill, { width: `${progress * 100}%` }]} />
-        </View>
-        <Mono style={{ color: palette.nightMuted, fontSize: 11 }}>{fmtTime(duration)}</Mono>
+        <Pressable
+          style={styles.hit}
+          onLayout={(e) => setTrackW(e.nativeEvent.layout.width)}
+          onPress={(e) => {
+            if (trackW && duration) seek((e.nativeEvent.locationX / trackW) * duration);
+          }}
+          accessibilityRole="adjustable"
+          accessibilityLabel="Seek"
+        >
+          <View style={styles.track}>
+            <View style={[styles.fill, { width: `${progress * 100}%` }]} />
+          </View>
+        </Pressable>
+        <Mono style={{ color: palette.nightMuted, fontSize: 11 }}>{duration ? fmtTime(duration) : "–:––"}</Mono>
       </View>
     </View>
   );
@@ -85,18 +93,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.nightLine,
     overflow: "hidden",
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 18,
     justifyContent: "space-between",
   },
   top: { flexDirection: "row", alignItems: "center", gap: 10 },
   live: { width: 7, height: 7, borderRadius: 4, backgroundColor: palette.night3 },
-  wave: { height: 36, flexDirection: "row", alignItems: "flex-end", gap: 2.5 },
-  bar: { flex: 1, borderRadius: 2 },
-  docWrap: { gap: 6 },
-  docLine: { height: 6, borderRadius: 4, backgroundColor: "rgba(243,230,225,0.14)" },
   controls: { flexDirection: "row", alignItems: "center", gap: 12 },
   play: { width: 38, height: 38, borderRadius: 19, backgroundColor: palette.cream, alignItems: "center", justifyContent: "center" },
-  track: { flex: 1, height: 4, borderRadius: 2, backgroundColor: "rgba(243,230,225,0.15)", overflow: "hidden" },
+  hit: { flex: 1, height: 28, justifyContent: "center" },
+  track: { height: 4, borderRadius: 2, backgroundColor: "rgba(243,230,225,0.15)", overflow: "hidden" },
   fill: { height: "100%", backgroundColor: palette.red400 },
 });

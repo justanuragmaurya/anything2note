@@ -1,47 +1,97 @@
-import { ScrollView, StyleSheet, View } from "react-native";
+import { useState } from "react";
+import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
-import { Divider, LinkRow, SelectRow, ToggleRow } from "@/components/profile/SettingRow";
+import { Divider, LinkRow, SelectRow } from "@/components/profile/SettingRow";
 import { UsageBar } from "@/components/profile/UsageBar";
-import { Body, Button, Card, Display, Eyebrow, H, NestedCard, Rise, Screen, SerifAccent, Small } from "@/components/ui";
+import { Body, Button, Card, Display, Eyebrow, H, NestedCard, Rise, Screen, SerifAccent, Skeleton, Small } from "@/components/ui";
+import { errorMessage } from "@/lib/api";
 import { NOTE_TYPES } from "@/lib/note-types";
-import { useSession, type AutoType } from "@/lib/session";
+import { authClient } from "@/lib/auth-client";
+import { usePreferences, type AutoType } from "@/lib/preferences";
+import { planSubtitle, planTitle } from "@/lib/billing";
+import { queryClient, useMe } from "@/lib/queries";
 import { palette } from "@/theme";
 
 const LANGUAGES = ["English", "Hindi", "Spanish", "French", "German", "Japanese", "Same as source"] as const;
 
 export default function Profile() {
-  const { email, plan, prefs, setPref, signOut } = useSession();
-  const pro = plan === "pro";
-  const name = email?.split("@")[0] ?? "you";
+  const { data: session } = authClient.useSession();
+  const me = useMe();
+  const { prefs, setPref } = usePreferences();
+  const [signingOut, setSigningOut] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const billing = me.data?.billing;
+  const onPlan = !!billing?.canUse;
+  const email = me.data?.user.email ?? session?.user.email ?? "";
+  // Email-code accounts start without a name; greet them by their address instead.
+  const name = (me.data?.user.name ?? session?.user.name ?? "").trim().split(/\s+/)[0] || email.split("@")[0];
+
+  const signOut = async () => {
+    setSigningOut(true);
+    // The client drops the stored session before the request goes out, so this signs out even
+    // offline; the session guard in _layout then routes back to sign-in.
+    try {
+      await authClient.signOut();
+    } catch {}
+    // Nothing from this account should show for the next one.
+    queryClient.clear();
+    setSigningOut(false);
+  };
+
+  const refresh = async () => {
+    setRefreshing(true);
+    await me.refetch();
+    setRefreshing(false);
+  };
 
   return (
     <Screen>
       <Rise className="px-5 pt-4 pb-2">
-        <Eyebrow>{email ?? "Signed out"}</Eyebrow>
+        <Eyebrow numberOfLines={1}>{email}</Eyebrow>
         <Display size={40} style={{ marginTop: 6 }}>
           Hi, <SerifAccent size={46}>{name}</SerifAccent>
         </Display>
       </Rise>
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 40 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} tintColor={palette.red500} colors={[palette.red500]} />}
+      >
         <Rise delay={60} style={{ paddingHorizontal: 16, marginTop: 10 }}>
           <NestedCard>
             <View style={styles.planHead}>
-              <View style={[styles.orb, pro ? styles.orbPro : styles.orbFree]}>
+              <View style={[styles.orb, onPlan ? styles.orbPro : styles.orbFree]}>
                 <View style={styles.orbDot} />
               </View>
               <View style={{ flex: 1 }}>
-                <H level={3}>{pro ? "Pro plan" : "Free plan"}</H>
-                <Small style={{ marginTop: 2 }}>{pro ? "Renews 27 Sep 2027 · yearly" : "Resets on 1 Oct"}</Small>
+                <H level={3}>{planTitle(billing)}</H>
+                <Small style={{ marginTop: 2 }}>{billing ? planSubtitle(billing) : me.isError ? errorMessage(me.error) : "Loading your plan…"}</Small>
               </View>
+              {me.data?.streak ? (
+                <View style={{ alignItems: "flex-end" }}>
+                  <H level={3}>{me.data.streak}</H>
+                  <Small>day streak</Small>
+                </View>
+              ) : null}
             </View>
             <View style={{ gap: 14, marginTop: 18, paddingTop: 16, borderTopWidth: 1, borderTopColor: palette.line }}>
-              <UsageBar label="Media minutes" used={pro ? 312 : 94} limit={pro ? 2000 : 120} unit="min" />
-              <UsageBar label="Document pages" used={pro ? 140 : 22} limit={pro ? 2000 : 50} unit="pp" />
-              <UsageBar label="AI chat" used={pro ? 40 : 18} limit={pro ? 1000 : 30} unit="msgs" />
+              {billing && onPlan ? (
+                <>
+                  <UsageBar label="Credits used" used={billing.credits.cycleGranted - billing.credits.cycleRemaining} limit={billing.credits.cycleGranted} unit="" />
+                  <UsageBar label="AI chat used" used={billing.chat.allowance - billing.chat.remaining} limit={billing.chat.allowance} unit="msgs" />
+                </>
+              ) : billing ? (
+                <Small>Plans and your 7-day free trial are on anything2note.com. Sign in there with this account and your credits show up here.</Small>
+              ) : me.isError ? (
+                <Button variant="ghost" size="sm" leadingIcon="refresh" loading={me.isFetching} onPress={() => void me.refetch()}>
+                  Try again
+                </Button>
+              ) : (
+                [0, 1, 2].map((i) => <Skeleton key={i} height={26} />)
+              )}
             </View>
-            {pro ? null : (
+            {onPlan || !me.data ? null : (
               <Button block size="lg" icon="arrowUpRight" style={{ marginTop: 20 }} onPress={() => router.push("/paywall")}>
-                Upgrade to Pro
+                See plans
               </Button>
             )}
           </NestedCard>
@@ -68,42 +118,17 @@ export default function Profile() {
           </Card>
         </Rise>
 
-        <Rise delay={160} style={{ paddingHorizontal: 16, marginTop: 20 }}>
-          <Eyebrow style={{ marginLeft: 6, marginBottom: 8 }}>Privacy & alerts</Eyebrow>
-          <Card padded={false}>
-            <ToggleRow
-              icon="trash"
-              title="Auto-delete originals"
-              hint="Remove audio & files 30 days after notes are ready"
-              value={prefs.autoDeleteOriginals}
-              onChange={(v) => setPref("autoDeleteOriginals", v)}
-            />
-            <Divider />
-            <ToggleRow
-              icon="bell"
-              title="Notifications"
-              hint="Notes ready, cards due, action items due"
-              value={prefs.notifications}
-              onChange={(v) => setPref("notifications", v)}
-            />
-          </Card>
-        </Rise>
-
         <Rise delay={200} style={{ paddingHorizontal: 16, marginTop: 20 }}>
           <Card padded={false}>
-            <LinkRow icon="crown" title={pro ? "Manage subscription" : "Plans & pricing"} onPress={() => router.push("/paywall")} />
-            <Divider />
-            <LinkRow icon="info" title="Help & feedback" onPress={() => undefined} />
+            <LinkRow icon="crown" title="Plans & pricing" onPress={() => router.push("/paywall")} />
           </Card>
           <Button
             variant="ghost"
             block
             leadingIcon="logout"
             style={{ marginTop: 20 }}
-            onPress={() => {
-              signOut();
-              router.replace("/sign-in");
-            }}
+            loading={signingOut}
+            onPress={() => void signOut()}
           >
             Sign out
           </Button>
