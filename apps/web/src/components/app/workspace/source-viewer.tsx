@@ -1,9 +1,11 @@
 "use client";
 
-import type { RefObject, SyntheticEvent } from "react";
+import Image from "next/image";
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref, type RefObject, type SyntheticEvent } from "react";
 import { AlertCircle, ChevronLeft, ChevronRight, Download, ExternalLink, FileText, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
-import type { ContentSegment, LibraryItem, NoteSection } from "@a2n/shared";
+import { youtubeThumbnailUrl, type ContentSegment, type LibraryItem, type NoteSection } from "@a2n/shared";
 import { fmtTime } from "@/lib/format";
+import { loadYoutubeApi, YT_STATE, type YTPlayer } from "@/lib/youtube-player";
 import { SourceIcon } from "../ui";
 
 type Chapter = { title: string; at: number };
@@ -11,6 +13,40 @@ type Chapter = { title: string; at: number };
 /** Chapters for the seek bar: note sections that point at a time. */
 export function chaptersFrom(sections: NoteSection[] | undefined): Chapter[] {
   return (sections ?? []).flatMap((s) => (s.anchor?.kind === "time" ? [{ title: s.heading.replace(/^\d+\.\s*/, ""), at: s.anchor.at }] : []));
+}
+
+/** Chapter links under a player; the one playing now is highlighted. */
+function ChapterList({ chapters, time, playing, onPick }: { chapters: Chapter[]; time: number; playing: boolean; onPick: (at: number) => void }) {
+  return (
+    <div className="border-t border-night-line px-4 py-3">
+      <p className="font-mono text-[10px] tracking-[0.12em] text-night-muted uppercase">Chapters</p>
+      <ul className="mt-2 space-y-0.5">
+        {chapters.map((c, i) => {
+          const next = chapters[i + 1];
+          const active = time >= c.at && (!next || time < next.at);
+          return (
+            <li key={`${c.at}-${c.title}`}>
+              <button
+                type="button"
+                onClick={() => onPick(c.at)}
+                className={`flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors ${active ? "bg-night-3 text-night-text" : "text-night-muted hover:bg-night-2 hover:text-night-text"}`}
+              >
+                <span className={`font-mono text-[10px] ${active ? "text-red-400" : ""}`}>{fmtTime(c.at)}</span>
+                <span className="flex-1 truncate">{c.title}</span>
+                {active && playing && (
+                  <span className="flex h-3 items-end gap-px" aria-hidden>
+                    {[0, 1, 2].map((d) => (
+                      <span key={d} className="wave-bar w-0.5 rounded-full bg-red-400" style={{ height: "100%", ["--d" as string]: `${d * 150}ms` }} />
+                    ))}
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 const SPEEDS = [1, 1.5, 2] as const;
@@ -188,44 +224,167 @@ export function MediaPlayer({
       </div>
 
       {chapters.length > 0 && (
-        <div className="border-t border-night-line px-4 py-3">
-          <p className="font-mono text-[10px] tracking-[0.12em] text-night-muted uppercase">Chapters</p>
-          <ul className="mt-2 space-y-0.5">
-            {chapters.map((c, i) => {
-              const next = chapters[i + 1];
-              const active = time >= c.at && (!next || time < next.at);
-              return (
-                <li key={`${c.at}-${c.title}`}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      seekTo(c.at);
-                      void el()?.play().catch(() => {});
-                    }}
-                    className={`flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-[13px] transition-colors ${active ? "bg-night-3 text-night-text" : "text-night-muted hover:bg-night-2 hover:text-night-text"}`}
-                  >
-                    <span className={`font-mono text-[10px] ${active ? "text-red-400" : ""}`}>{fmtTime(c.at)}</span>
-                    <span className="flex-1 truncate">{c.title}</span>
-                    {active && playing && (
-                      <span className="flex h-3 items-end gap-px" aria-hidden>
-                        {[0, 1, 2].map((d) => (
-                          <span key={d} className="wave-bar w-0.5 rounded-full bg-red-400" style={{ height: "100%", ["--d" as string]: `${d * 150}ms` }} />
-                        ))}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
+        <ChapterList
+          chapters={chapters}
+          time={time}
+          playing={playing}
+          onPick={(at) => {
+            seekTo(at);
+            void el()?.play().catch(() => {});
+          }}
+        />
       )}
       <span className="sr-only">{title}</span>
     </div>
   );
 }
 
-function ViewerHeader({ label, page, total, onPage, href }: { label: string; page?: number; total?: number; onPage?: (n: number) => void; href?: string | null }) {
+export type YoutubeHandle = { seek: (at: number) => void };
+
+/**
+ * YouTube's own embed through the IFrame Player API. Like the file player, the workspace owns
+ * `playerRef` so anchor chips can seek it, and gets the playback time back through `onState`
+ * (polled while playing, since the API has no time events).
+ */
+export function YoutubePlayer({
+  videoId,
+  href,
+  label,
+  start,
+  chapters,
+  playerRef,
+  state,
+  onState,
+}: {
+  videoId: string;
+  href: string;
+  label: string;
+  /** Seconds to cue the video at, from a `?t=` link */
+  start: number;
+  chapters: Chapter[];
+  playerRef: Ref<YoutubeHandle>;
+  state: MediaState;
+  onState: (patch: Partial<MediaState>) => void;
+}) {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const player = useRef<YTPlayer | null>(null);
+  // A seek asked for before the player is ready; applied once it is.
+  const pending = useRef<number | null>(null);
+  const startAt = useRef(start);
+  const report = useRef(onState);
+  const [failed, setFailed] = useState<string | null>(null);
+  const { time, playing } = state;
+
+  useEffect(() => {
+    report.current = onState;
+  });
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    let cancelled = false;
+    let created: YTPlayer | null = null;
+    // The API swaps its target for an iframe, so give it a node React doesn't own.
+    const mount = document.createElement("div");
+    host.appendChild(mount);
+    loadYoutubeApi()
+      .then((YT) => {
+        if (cancelled) return;
+        created = new YT.Player(mount, {
+          videoId,
+          width: "100%",
+          height: "100%",
+          playerVars: { playsinline: 1, rel: 0, start: Math.floor(startAt.current) },
+          events: {
+            onReady: ({ target }) => {
+              player.current = target;
+              const d = target.getDuration();
+              report.current({ error: false, ...(d > 0 && { duration: d }) });
+              if (pending.current !== null) {
+                target.seekTo(pending.current, true);
+                target.playVideo();
+                pending.current = null;
+              }
+            },
+            onStateChange: ({ target, data }) => {
+              const d = target.getDuration();
+              report.current({ time: target.getCurrentTime(), playing: data === YT_STATE.playing || data === YT_STATE.buffering, ...(d > 0 && { duration: d }) });
+            },
+            onError: ({ data }) => {
+              report.current({ error: true, playing: false });
+              setFailed(data === 101 || data === 150 ? "The owner doesn’t allow this video to play outside YouTube." : "This video can’t be played here right now.");
+            },
+          },
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        report.current({ error: true, playing: false });
+        setFailed("The YouTube player couldn’t be loaded. An ad or content blocker may be stopping it.");
+      });
+    return () => {
+      cancelled = true;
+      created?.destroy();
+      player.current = null;
+      host.replaceChildren();
+    };
+  }, [videoId]);
+
+  // Follow the video so the transcript and chapters highlight the line being said.
+  useEffect(() => {
+    if (!playing) return;
+    const id = setInterval(() => {
+      const p = player.current;
+      if (p) report.current({ time: p.getCurrentTime() });
+    }, 500);
+    return () => clearInterval(id);
+  }, [playing]);
+
+  const seek = useCallback((at: number) => {
+    const p = player.current;
+    if (!p) {
+      pending.current = at;
+      return;
+    }
+    p.seekTo(at, true);
+    p.playVideo();
+  }, []);
+
+  useImperativeHandle(playerRef, () => ({ seek }), [seek]);
+
+  return (
+    <div className="overflow-hidden rounded-[24px] border border-night-line bg-night text-night-text shadow-[0_30px_60px_-40px_rgba(20,10,10,0.9)]">
+      <div className="relative aspect-video overflow-hidden bg-black">
+        <Image src={youtubeThumbnailUrl(videoId)} alt="" fill sizes="(min-width: 1024px) 40vw, 100vw" className="object-cover opacity-60" />
+        <div ref={hostRef} className="absolute inset-0 [&>iframe]:block [&>iframe]:size-full" />
+        {failed && (
+          <div className="absolute inset-0 z-10 grid place-items-center bg-night/85 p-6 text-center">
+            <div>
+              <AlertCircle className="mx-auto size-6 text-red-400" />
+              <p className="mt-2 text-sm">{failed}</p>
+              <a href={href} target="_blank" rel="noreferrer" className="btn btn-cream btn-sm mt-3">
+                <ExternalLink className="size-3.5" /> Open on YouTube
+              </a>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 border-t border-night-line bg-night-2 px-4 py-2.5">
+        <span className="flex min-w-0 items-center gap-1.5 font-mono text-[10px] tracking-[0.1em] text-night-muted uppercase">
+          <SourceIcon kind="youtube" className="size-3.5 shrink-0 text-red-400" /> <span className="truncate">{label}</span>
+        </span>
+        <a href={href} target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-1 text-[12px] text-night-muted transition-colors hover:text-night-text">
+          <ExternalLink className="size-3.5" /> Open on YouTube
+        </a>
+      </div>
+
+      {chapters.length > 0 && <ChapterList chapters={chapters} time={time} playing={playing} onPick={seek} />}
+    </div>
+  );
+}
+
+export function ViewerHeader({ label, page, total, onPage, href }: { label: string; page?: number; total?: number; onPage?: (n: number) => void; href?: string | null }) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-line bg-paper/70 px-4 py-2.5">
       <span className="truncate font-mono text-[10px] tracking-[0.1em] text-muted uppercase">{label}</span>
@@ -253,8 +412,11 @@ function ViewerHeader({ label, page, total, onPage, href }: { label: string; pag
   );
 }
 
-/** The PDF itself in the browser's viewer; jumping to a page reloads it at `#page=N`. */
-export function PdfViewer({ src, page, total, label, flash, onPage }: { src: string; page: number; total: number; label: string; flash: number; onPage: (n: number) => void }) {
+/**
+ * The PDF in the browser's own viewer; jumping to a page reloads it at `#page=N`. The fallback
+ * when pdf.js can't load the file (see pdf-viewer.tsx).
+ */
+export function PdfFrame({ src, page, total, label, flash, onPage }: { src: string; page: number; total: number; label: string; flash: number; onPage: (n: number) => void }) {
   return (
     <div className="overflow-hidden rounded-[24px] border border-line bg-panel">
       <ViewerHeader label={label} page={page} total={total} onPage={onPage} href={src} />

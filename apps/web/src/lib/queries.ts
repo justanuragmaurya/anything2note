@@ -8,6 +8,10 @@
 import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ItemDetail, LibraryItem } from "@a2n/shared";
 import { api, ApiError } from "./api";
+import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
+import type { UserSettings } from "@a2n/shared";
+import { accountApi } from "./api";
+import { clearLegacyPrefs, legacyPrefs } from "./prefs";
 
 export const POLL_MS = 3000;
 
@@ -82,4 +86,63 @@ export function useDueCount(): number {
 export function useInvalidate() {
   const qc = useQueryClient();
   return (...ks: (readonly unknown[])[]) => Promise.all(ks.map((k) => qc.invalidateQueries({ queryKey: k })));
+}
+
+/* ═════════════ Settings & credit history (add flow / settings / billing) ═════════════ */
+
+export const accountKeys = {
+  settings: ["settings"] as const,
+  credits: ["billing", "credits"] as const,
+};
+
+/** Server settings; the first load also moves this browser's old localStorage defaults up (once). */
+async function loadSettings(): Promise<UserSettings> {
+  const { settings } = await accountApi.settings();
+  const patch = legacyPrefs(settings);
+  if (!patch) return settings;
+  try {
+    const saved = await accountApi.updateSettings(patch);
+    clearLegacyPrefs();
+    return saved.settings;
+  } catch {
+    return settings;
+  }
+}
+
+export function useSettings() {
+  return useQuery({ queryKey: accountKeys.settings, queryFn: loadSettings, staleTime: 60_000 });
+}
+
+const SAVE_SETTINGS = ["settings", "save"] as const;
+
+/** Optimistic PATCH /api/settings; rolls back on error. */
+export function useUpdateSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationKey: SAVE_SETTINGS,
+    mutationFn: (patch: Partial<UserSettings>) => accountApi.updateSettings(patch),
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: accountKeys.settings });
+      const prev = qc.getQueryData<UserSettings>(accountKeys.settings);
+      if (prev) qc.setQueryData<UserSettings>(accountKeys.settings, { ...prev, ...patch });
+      return { prev };
+    },
+    onError: (_e, _patch, ctx) => {
+      if (ctx?.prev) qc.setQueryData(accountKeys.settings, ctx.prev);
+    },
+    onSuccess: ({ settings }) => {
+      // A later change still in flight wins over this response.
+      if (qc.isMutating({ mutationKey: SAVE_SETTINGS }) <= 1) qc.setQueryData(accountKeys.settings, settings);
+    },
+  });
+}
+
+/** GET /api/billing/credits, newest first, paged by `next`. */
+export function useCreditHistory() {
+  return useInfiniteQuery({
+    queryKey: accountKeys.credits,
+    queryFn: ({ pageParam }) => accountApi.creditHistory(pageParam),
+    initialPageParam: null as number | null,
+    getNextPageParam: (last) => last.next,
+  });
 }

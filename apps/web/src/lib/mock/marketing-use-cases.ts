@@ -100,7 +100,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       {
         icon: "shield",
         title: "The audio doesn't hang around",
-        body: "Auto-delete is on by default for class recordings: the audio is removed right after processing and your notes stay. The recorder reminds you to check that recording is allowed.",
+        body: "Turn on “Delete originals after processing” in Settings and the audio is deleted once your notes are made; the notes and transcript stay. The recorder reminds you to check that recording is allowed.",
       },
     ],
     sampleTitle: { before: "A 55-minute econ lecture, recorded on a phone,", accent: "fully noted" },
@@ -183,11 +183,11 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       },
       {
         q: "Does it tell the lecturer apart from students' questions?",
-        a: "Speaker labels, which separate the lecturer from questions asked in the room, are on the way. Until then, questions are captured in the transcript and notes.",
+        a: "Not yet: the transcript doesn't label who is speaking. Questions asked in the room are still captured in the transcript and notes.",
       },
       {
         q: "What happens to the recording afterwards?",
-        a: "Auto-delete is on by default for class recordings: the audio is removed right after processing, and your notes, transcript and tasks stay. Turn it off in settings if you'd rather keep the audio to replay.",
+        a: "By default it's kept with the note so you can replay any moment. Turn on “Delete originals after processing” in Settings and the audio is deleted once your notes are made, while your notes, transcript and tasks stay.",
       },
     ],
     cta: {
@@ -275,7 +275,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       ],
     },
     steps: [
-      { title: "Bring the lecture", body: "A YouTube link, a video from your course portal, the slide deck, or all of them. Slides and video can be combined into one item." },
+      { title: "Bring the lecture", body: "A YouTube link, a video from your course portal or the slide deck. Drop several files at once and each becomes its own note." },
       { title: "Pick Lecture", body: "Detailed notes, revision points, flashcards, a quiz and a glossary are on by default. Add key formulas or a mind map if you want them." },
       { title: "Revise on a schedule", body: "Due cards appear in Review every day across all your courses. Quizzes show which topics need another pass." },
     ],
@@ -286,7 +286,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       },
       {
         q: "My lecturer mostly reads from slides. Should I upload those too?",
-        a: "Upload both. The notes use the slides for structure and spelling of technical terms, and the video for everything that was said but never written down.",
+        a: "Upload the one with the most in it. The recording catches everything that was said but never written down; the slides give clean page-by-page notes. You can add both, and each becomes its own note.",
       },
       {
         q: "Can I export flashcards to Anki?",
@@ -405,16 +405,16 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
     name: "PDF to notes",
     metaTitle: "PDF to notes: summaries, key concepts and flashcards with page references",
     metaDescription:
-      "Upload a PDF, textbook chapter or research paper (including scanned ones) and get a summary, detailed notes, key concepts, flashcards and a quiz. Every point cites its page.",
+      "Upload a PDF, textbook chapter or research paper and get a summary, detailed notes, key concepts, flashcards and a quiz. Every point cites its page.",
     keywords: ["pdf to notes", "pdf summarizer", "research paper summary", "textbook notes AI", "chat with pdf"],
     eyebrow: "Use case · Documents",
     title: { before: "Forty pages in.", accent: "Five minutes", after: "out." },
-    sub: "Upload a textbook chapter, paper or report, scanned or not. Get a summary, key concepts and flashcards, and every point cites the page it came from.",
+    sub: "Upload a textbook chapter, paper or report. Get a summary, key concepts and flashcards, and every point cites the page it came from.",
     noteType: "reading",
     source: {
       kind: "PDF or document",
       icon: "file",
-      placeholders: ["Upload a 40-page research PDF…", "Drop chapter-6-monetary-policy.pdf…", "Upload a scanned handout…"],
+      placeholders: ["Upload a 40-page research PDF…", "Drop chapter-6-monetary-policy.pdf…", "Upload the week 3 reading pack…"],
     },
     art: "hero-pdf",
     artTint: "var(--nt-reading)",
@@ -426,8 +426,8 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       },
       {
         icon: "scan",
-        title: "Scans and photos too",
-        body: "Old handouts, photographed pages and scanned books go through OCR first, so you get the same notes from a phone photo as from a clean PDF.",
+        title: "Photos of pages too",
+        body: "No PDF? Snap each page (PNG, JPEG or WebP) and we read the text, diagrams and equations. Scanned PDFs without a text layer aren't supported yet, so upload photos of those pages instead.",
       },
       {
         icon: "search",
@@ -473,7 +473,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       ],
     },
     steps: [
-      { title: "Upload the document", body: "PDF, Word, PowerPoint or photos of pages, up to 200 MB each. Scanned pages are OCR'd automatically." },
+      { title: "Upload the document", body: "PDF, Word, PowerPoint or photos of pages, up to 200 MB each. Drop several at once and each becomes its own note." },
       { title: "Pick Reading", body: "Summary, detailed notes, key concepts, flashcards and a quiz by default. Add a glossary, critique or citations." },
       { title: "Read with receipts", body: "Open the document beside the notes. Every chip jumps to its page, and the assistant cites pages when it answers." },
     ],
@@ -484,7 +484,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       },
       {
         q: "Does it work on scanned or handwritten pages?",
-        a: "Yes. Printed scans work very well. Neat handwriting usually does too; anything we can't read confidently is marked as unclear rather than guessed.",
+        a: "Scanned PDFs without a text layer aren't supported yet. Photos of the pages work instead, printed or neatly handwritten: upload a PNG, JPEG or WebP of each page. HEIC photos need exporting as JPEG first.",
       },
       {
         q: "Can I ask questions about the PDF?",
@@ -528,7 +528,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       {
         icon: "quote",
         title: "Quotes, verbatim",
-        body: "Highlights are the speaker's real words with speaker labels, not paraphrases. Safe to quote in a newsletter or a thread.",
+        body: "Highlights are the speaker's real words, not paraphrases, each with a timestamp. Safe to quote in a newsletter or a thread.",
       },
       {
         icon: "layers",
@@ -586,11 +586,11 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       },
       {
         q: "Will it get the speakers right?",
-        a: "Speaker labels that separate the voices are on the way. For now, quotes and chapters come with timestamps so you can jump straight to who said it.",
+        a: "The transcript doesn't label speakers yet. Quotes and chapters come with timestamps, so you can jump straight to who said it.",
       },
       {
         q: "Can I share the summary?",
-        a: "Read-only share links are coming soon. Until then, export the takeaways as Markdown and send them anywhere.",
+        a: "Yes. Share a read-only link to the notes, or export the takeaways as PDF, Word or Markdown and send them anywhere.",
       },
     ],
     cta: {
@@ -681,7 +681,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       ],
     },
     steps: [
-      { title: "Upload the session", body: "Any audio or video recording. Label the interviewer once and the Q&A breakdown follows." },
+      { title: "Upload the session", body: "Any audio or video recording, up to 2 hours on Starter and 6 on Pro. The questions you asked become the Q&A breakdown." },
       { title: "Pick Interview", body: "Summary, Q&A breakdown, key insights and highlights by default. Add follow-up questions or a hiring scorecard." },
       { title: "Synthesise", body: "Group sessions in a folder, then ask across them. Share read-only links with stakeholders who weren't there." },
     ],
@@ -692,7 +692,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       },
       {
         q: "How do I anonymise participants?",
-        a: "Rename speakers to P1, P2 and so on before sharing. Names change everywhere, including quotes and insights.",
+        a: "Every output is editable: replace names with P1, P2 and so on before you share or export. Ask for it up front too, with custom instructions like “refer to the participant as P4”.",
       },
       {
         q: "Does it keep the exact wording?",
@@ -700,7 +700,7 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       },
       {
         q: "Where is interview audio stored?",
-        a: "Privately, for your account only. Turn on auto-delete and the original recording is removed as soon as processing finishes.",
+        a: "Privately, for your account only. Turn on “Delete originals after processing” in Settings and the recording is deleted once its notes are made.",
       },
     ],
     cta: {
@@ -714,16 +714,16 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
     name: "Whiteboard to notes",
     metaTitle: "Whiteboard to notes: turn whiteboard photos and handwriting into notes",
     metaDescription:
-      "Snap a photo of a whiteboard, flip chart or handwritten page and get clean typed notes, key points and tasks, with each point linked to the area of the photo it came from.",
-    keywords: ["whiteboard to notes", "whiteboard photo to text", "handwriting to notes", "flip chart notes", "OCR notes"],
+      "Snap a photo of a whiteboard, flip chart or handwritten page and get clean typed notes, key points and tasks, with diagrams described in words.",
+    keywords: ["whiteboard to notes", "whiteboard photo to text", "handwriting to notes", "flip chart notes", "photo to notes"],
     eyebrow: "Use case · Whiteboards",
     title: { before: "Snap the whiteboard", accent: "before", after: "it's wiped" },
-    sub: "Photograph the whiteboard, flip chart or notebook page. Get typed notes, key points and tasks, with each one pointing to where it was on the board.",
+    sub: "Photograph the whiteboard, flip chart or notebook page. Get typed notes, key points and tasks, with the boxes and arrows described in words.",
     noteType: "general",
     source: {
       kind: "Whiteboard photo",
       icon: "image",
-      placeholders: ["Snap the whiteboard before it's wiped…", "Upload IMG_2231.jpg…", "Drop four photos of the flip chart…"],
+      placeholders: ["Snap the whiteboard before it's wiped…", "Upload IMG_2231.jpg…", "Drop the flip chart photo…"],
     },
     art: "hero-polaroid",
     artTint: "var(--card)",
@@ -731,55 +731,55 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
       {
         icon: "scan",
         title: "Reads real handwriting",
-        body: "Arrows, boxes, sticky notes and rushed handwriting. The layout is understood, not just the letters.",
+        body: "Arrows, boxes, sticky notes and handwriting. Text is read in order and the layout is described, not just the letters.",
       },
       {
         icon: "shield",
-        title: "Marks what it can't read",
-        body: "An illegible word is shown as [?] with a pointer to the spot on the photo. It's never quietly replaced with a guess.",
+        title: "Diagrams in words",
+        body: "Boxes, arrows, charts and equations are described in enough detail to study from, not just skipped because they aren't text.",
       },
       {
         icon: "layers",
-        title: "Many photos, one note",
-        body: "Took four photos of a long board? Upload them together and get one set of notes in the right order.",
+        title: "Several photos at once",
+        body: "Took four photos of a long board? Drop them in together and each photo becomes its own note, ready in your library.",
       },
     ],
     sampleTitle: { before: "A messy architecture session,", accent: "made legible" },
-    sampleSub: "From one phone photo of a whiteboard after a checkout redesign session. Chips point to regions of the photo.",
+    sampleSub: "From one phone photo of a whiteboard after a checkout redesign session. The photo sits beside the notes to check against.",
     sample: {
       output: "Key points & tasks",
       file: "IMG_2231.jpg · whiteboard",
-      meta: ["1 photo", "Handwriting", "3 regions"],
+      meta: ["1 photo", "Handwriting", "1 credit"],
       blocks: [
-        { type: "heading", text: "Checkout v2: architecture sketch", anchor: { kind: "region", label: "Top-left" } },
+        { type: "heading", text: "Checkout v2: architecture sketch" },
         {
           type: "bullets",
           items: [
-            { text: "Cart service owns pricing; checkout only reads a signed price snapshot.", anchor: { kind: "region", label: "Top-left" } },
-            { text: "Payment step becomes async: order is ‘pending’ until the webhook confirms.", anchor: { kind: "region", label: "Centre" } },
-            { text: "Retry queue for failed webhooks, max 5 attempts, then alert on-call.", anchor: { kind: "region", label: "Centre" } },
-            { text: "Open question circled: do we keep the [?] fallback for card-on-file users?", anchor: { kind: "region", label: "Right column" } },
+            { text: "Cart service owns pricing; checkout only reads a signed price snapshot." },
+            { text: "Payment step becomes async: order is ‘pending’ until the webhook confirms." },
+            { text: "Retry queue for failed webhooks, max 5 attempts, then alert on-call." },
+            { text: "Open question circled: do we keep the saved-card fallback for card-on-file users?" },
           ],
         },
         { type: "heading", text: "From the sticky notes" },
         {
           type: "tasks",
           items: [
-            { task: "Write the price snapshot schema", kind: "project", due: NOT_MENTIONED, anchor: { kind: "region", label: "Right column" } },
-            { task: "Spike the webhook retry queue", kind: "project", due: "Thu, 1 Oct", anchor: { kind: "region", label: "Right column" } },
+            { task: "Write the price snapshot schema", kind: "project", due: NOT_MENTIONED },
+            { task: "Spike the webhook retry queue", kind: "project", due: "Thu, 1 Oct" },
           ],
         },
         {
           type: "callout",
-          label: "Couldn't read",
-          text: "One word in the right column is illegible. It's marked [?] rather than guessed. Tap the chip to see that spot on the photo.",
+          label: "The diagram",
+          text: "Three boxes joined by arrows: cart service → checkout (signed price snapshot) → payment (async, webhook confirms).",
         },
       ],
     },
     steps: [
-      { title: "Take the photo", body: "Straight on if you can, but angled shots are fine. We correct perspective and glare. Add several photos for a long board." },
+      { title: "Take the photo", body: "Straight on, in good light, with the whole board in frame. PNG, JPEG or WebP; on an iPhone, export HEIC photos as JPEG first." },
       { title: "Pick General, or Lecture", body: "General gives a summary, notes and key points. If the board is from a class, Lecture adds revision points, flashcards and Tasks & deadlines." },
-      { title: "Wipe with confidence", body: "Check the [?] marks against the photo, tick off your tasks, and share the notes with the room." },
+      { title: "Wipe with confidence", body: "Check the notes against the photo, tick off your tasks, and share a read-only link with the room." },
     ],
     faq: [
       {
@@ -791,12 +791,16 @@ export const USE_CASES: Record<UseCaseSlug, UseCase> = {
         a: "Each photo is 1 credit. Even Starter includes 1,200 a month, which is plenty of whiteboards.",
       },
       {
+        q: "Which photo formats work?",
+        a: "PNG, JPEG and WebP. HEIC, the iPhone default, isn't supported on the web yet: export it as JPEG, or set Camera → Formats to Most Compatible. The mobile apps convert photos for you.",
+      },
+      {
         q: "Can I photograph handwritten notebook pages?",
-        a: "Yes, the same way. Upload several pages at once and they're combined in the order you add them.",
+        a: "Yes, the same way. Upload several pages at once and each page becomes its own note.",
       },
       {
         q: "Can I do this from my phone?",
-        a: "Yes. The iOS and Android apps open straight to the camera. The notes are waiting on the web when you get back to your desk.",
+        a: "Yes. In the iOS and Android apps, tap Photo and take one with the camera; the app converts it to JPEG for you. The notes are waiting on the web when you get back to your desk.",
       },
     ],
     cta: {

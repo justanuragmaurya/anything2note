@@ -14,7 +14,7 @@ const SCRAPS = [
 
 const FEATURES = [
   { icon: Timer, title: "Anchored to the second", body: "Every note, card and task links back to the timestamp or page it came from. Click to jump." },
-  { icon: Lock, title: "Private by default", body: "Uploads, recordings and documents are yours alone. Originals can auto-delete after processing." },
+  { icon: Lock, title: "Private by default", body: "Uploads, recordings and documents are yours alone. Turn on one setting and originals are deleted once your notes are made." },
   { icon: MessageSquareText, title: "Chat with every item", body: "Ask follow-ups. The assistant cites exact moments and pages, and never makes up facts or dates." },
   { icon: Languages, title: "Notes in your language", body: "Source in Hindi, notes in English — or any mix. Output language is a toggle, not a workaround." },
   { icon: Clock, title: "First output in minutes", body: "The primary output streams in first, the rest follow. Captions-first for YouTube keeps it fast." },

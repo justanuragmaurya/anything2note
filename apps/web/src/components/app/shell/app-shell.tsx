@@ -12,6 +12,7 @@ import { useDueCount, useMe } from "@/lib/queries";
 import { planLabel } from "../billing/billing-view";
 import { Kbd, ProgressBar } from "../ui";
 import { CommandPalette } from "./command-palette";
+import { CreditBanner, MobileCredits, MobilePlanStrip } from "./credit-banner";
 import { NAV, isActive } from "./nav-items";
 
 function SearchTrigger({ onOpen, compact = false }: { onOpen: () => void; compact?: boolean }) {
@@ -204,12 +205,14 @@ function MobileBars({ pathname, onSearch }: { pathname: string; onSearch: () => 
       <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line bg-paper/85 px-4 py-2.5 backdrop-blur-xl lg:hidden">
         <Logo href="/app" />
         <div className="flex items-center gap-2">
+          <MobileCredits />
           <SearchTrigger onOpen={onSearch} compact />
           <Link href="/app/settings" aria-label="Settings" className="rounded-full focus-visible:outline-2 focus-visible:outline-red-400">
             <Avatar className="size-10" />
           </Link>
         </div>
       </header>
+      <MobilePlanStrip />
 
       <nav
         aria-label="App"
@@ -279,7 +282,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-dvh bg-paper">
       <Sidebar pathname={pathname} onSearch={open} />
       <MobileBars pathname={pathname} onSearch={open} />
-      <main className="px-4 pt-6 pb-28 sm:px-6 lg:ml-[264px] lg:px-10 lg:pt-9 lg:pb-14">{children}</main>
+      <main className="px-4 pt-6 pb-28 sm:px-6 lg:ml-[264px] lg:px-10 lg:pt-9 lg:pb-14">
+        <CreditBanner pathname={pathname} />
+        {children}
+      </main>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
     </div>
   );

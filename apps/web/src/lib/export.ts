@@ -1,4 +1,7 @@
-/** Client-side exports: Markdown for any output, CSV for flashcards (Anki) and tasks. */
+/**
+ * Client-side exports: Markdown for any output, CSV for flashcards (Anki) and tasks. Word and
+ * PDF come from the API (`GET /sources/:id/export`); `saveBlob` and `printHtml` hand them over.
+ */
 
 import type { Anchor, OutputData, Task } from "@a2n/shared";
 import { fmtTime, TASK_KIND_LABELS } from "./format";
@@ -51,12 +54,79 @@ export function tasksCsv(tasks: (Task & { itemTitle?: string })[]): string {
 }
 
 export function download(filename: string, body: string, type: string) {
-  const url = URL.createObjectURL(new Blob([body], { type }));
+  saveBlob(new Blob([body], { type }), filename);
+}
+
+export function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
   a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/** Touch devices print an iframe unreliably (iOS prints the parent page), so they get a tab instead. */
+const printInTab = () => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+
+/**
+ * Where the print-ready page will go. Call it synchronously in the click handler, before any
+ * `await`, so the browser treats the new tab (touch devices) as user-initiated.
+ */
+export function openPrintTarget(): Window | null {
+  if (!printInTab()) return null;
+  const w = window.open("", "_blank");
+  if (w) w.document.write("<!doctype html><title>Preparing PDF…</title><p style=\"font:14px system-ui;padding:24px;color:#5b3f3a\">Preparing your PDF…</p>");
+  return w;
+}
+
+/**
+ * Opens the browser's print dialog on a self-contained HTML page ("Save as PDF" is one of its
+ * destinations). Desktop: a hidden same-origin iframe, removed afterwards. Touch devices: the tab
+ * from `openPrintTarget`, where the page stays open to print or share.
+ */
+export function printHtml(html: string, target: Window | null = null): void {
+  if (target && !target.closed) {
+    target.document.open();
+    target.document.write(html);
+    target.document.close();
+    const go = () => {
+      target.focus();
+      target.print();
+    };
+    if (target.document.readyState === "complete") setTimeout(go, 250);
+    else target.addEventListener("load", () => setTimeout(go, 250), { once: true });
+    return;
+  }
+  const frame = document.createElement("iframe");
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;opacity:0;pointer-events:none";
+  frame.srcdoc = html;
+  const cleanup = () => setTimeout(() => frame.remove(), 1000);
+  frame.addEventListener(
+    "load",
+    () => {
+      const w = frame.contentWindow;
+      if (!w) return cleanup();
+      w.addEventListener("afterprint", cleanup, { once: true });
+      // Fonts and images inside the page need a moment after load.
+      const fonts = (frame.contentDocument as (Document & { fonts?: FontFaceSet }) | null)?.fonts;
+      void (fonts?.ready ?? Promise.resolve()).then(() =>
+        setTimeout(() => {
+          w.focus();
+          w.print();
+          // Safari doesn't always fire afterprint; don't leave the frame around forever.
+          setTimeout(() => frame.remove(), 60_000);
+        }, 150),
+      );
+    },
+    { once: true },
+  );
+  document.body.appendChild(frame);
 }
 
 export const fileSafe = (s: string) => s.replace(/[^\w\- ]+/g, "").trim().slice(0, 60) || "note";

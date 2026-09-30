@@ -8,19 +8,19 @@ type Cat = "general" | "privacy" | "outputs" | "billing";
 
 const FAQS: Record<Cat, { q: string; a: string }[]> = {
   general: [
-    { q: "What can I upload?", a: "YouTube links, audio (mp3, m4a, wav…), video (mp4, mov…), in-app recordings of your classes, PDFs (including scanned ones), Word and PowerPoint files, photos of whiteboards or handwritten notes, web articles and pasted text." },
+    { q: "What can I upload?", a: "YouTube links, audio (mp3, m4a, wav…) and video (mp4, mov…) up to 2 GB, in-app recordings of your classes, PDFs with a text layer, Word and PowerPoint files, photos of whiteboards or handwritten notes (PNG, JPEG or WebP), web articles and pasted text. Scanned PDFs and HEIC photos aren’t supported yet: upload a photo of each page, or export HEIC as JPEG." },
     { q: "How long does it take?", a: "Your first output usually lands within a couple of minutes; the rest stream in right after. Captioned YouTube videos are the fastest." },
     { q: "Does it work for Hindi and other languages?", a: "Yes. Transcription handles most major languages, and you can pick a different output language — Hindi lecture, English notes." },
   ],
   privacy: [
     { q: "Who can see my recordings and documents?", a: "Only you. Uploads, recordings, documents, URLs and pasted text are private and never shared or reused across users. Only public YouTube videos are processed once and cached." },
-    { q: "Can originals be deleted automatically?", a: "Yes. Turn on auto-delete in settings and original files are removed right after processing (on by default for class recordings). Your notes stay." },
+    { q: "Can originals be deleted automatically?", a: "Yes. Turn on “Delete originals after processing” in Settings and uploaded files and recordings are deleted once their notes are made. It’s off until you turn it on. Your notes, transcript and flashcards stay." },
     { q: "Do you train models on my data?", a: "No. Your content is sent to AI providers only to generate your outputs." },
   ],
   outputs: [
     { q: "What if it gets a due date wrong?", a: "Tasks & deadlines say “not mentioned” instead of guessing a date, every item links to the exact moment it came from, and everything is editable." },
     { q: "Can I add outputs after the fact?", a: "Anytime. Open an item, hit “+ Add output” and pick key formulas for a lecture, a quiz for a podcast — whatever you need." },
-    { q: "Can I export?", a: "Yes, on every plan: Markdown for notes, and Anki CSV for flashcards and tasks." },
+    { q: "Can I export?", a: "Yes, on every plan: PDF, Word or Markdown for notes, and Anki CSV for flashcards and tasks. You can also share a read-only link." },
   ],
   billing: [
     { q: "What currency do you charge in?", a: "USD, at the same price everywhere. Your bank converts it to your local currency if needed." },

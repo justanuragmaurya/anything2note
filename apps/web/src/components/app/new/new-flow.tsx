@@ -1,18 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMemo, useState } from "react";
 import { AlertCircle, ArrowLeft, ArrowRight, Check, Loader2, RotateCcw, Sparkles, WandSparkles, X } from "lucide-react";
-import { TRIAL, type CreateSourceRequest, type ItemDetail, type OutputData, type OutputEntry, type SourceKind } from "@a2n/shared";
+import { TRIAL, UPLOAD_LIMITS, planDef, type CreateSourceRequest, type ItemDetail, type OutputData, type OutputEntry, type SourceKind } from "@a2n/shared";
 import { NoteTypeShape } from "@/components/site/note-type-shape";
 import { api, errorMessage } from "@/lib/api";
 import { MEDIA_KINDS } from "@/lib/format";
 import { NOTE_TYPES, noteType, OUTPUT_LABELS, type NoteTypeKey, type OutputKey } from "@/lib/note-types";
-import { apiLanguage, LANGS, readPrefs } from "@/lib/prefs";
-import { keys, useInvalidate, useItem, useMe } from "@/lib/queries";
+import { apiLanguage, languageLabel, languageOptions } from "@/lib/prefs";
+import { accountKeys, keys, useInvalidate, useItem, useMe, useSettings } from "@/lib/queries";
 import { statusLine } from "../billing/billing-view";
 import { SourceIcon, Toggle, inputCls } from "../ui";
-import { SourceStep, type PickedSource } from "./source-step";
+import { SourceStep, useSourcePicker, type PickedSource, type PlanLimits } from "./source-step";
 
 type TypeChoice = NoteTypeKey | "auto";
 
@@ -218,7 +219,7 @@ function OutputsStep({
             Output language
           </label>
           <select id="lang" value={lang} onChange={(e) => onLang(e.target.value)} className={`${inputCls} mt-2 cursor-pointer appearance-none bg-[length:12px] bg-[right_16px_center] bg-no-repeat pr-10`} style={{ backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%237d6660' stroke-width='1.5'/></svg>\")" }}>
-            {LANGS.map((l) => (
+            {languageOptions(lang).map((l) => (
               <option key={l}>{l}</option>
             ))}
           </select>
@@ -393,6 +394,9 @@ function TrackingView({
   const { item, outputs } = detail;
   const st = item.status;
   const media = MEDIA_KINDS.includes(item.source);
+  // YouTube reads the captions; it only transcribes when a video has none.
+  const youtube = item.source === "youtube";
+  const transcribing = st.state === "processing" && st.step === "transcribing";
   // 0 = queued, 1 = reading, 2 = generating, 3 = done
   const phase = st.state === "queued" ? 0 : st.state === "processing" ? (st.step === "generating" ? 2 : 1) : st.state === "ready" ? 3 : -1;
   const failed = st.state === "failed";
@@ -408,8 +412,15 @@ function TrackingView({
 
   const steps = [
     {
-      label: media ? "Transcribing" : "Reading the source",
-      sub: phase === 0 ? "Queued · starts in a moment" : media ? "Speech to text, with timestamps" : (READ_SUB[item.source] ?? "Reading the source"),
+      label: youtube && !transcribing ? "Reading the video" : media ? "Transcribing" : "Reading the source",
+      sub:
+        phase === 0
+          ? "Queued · starts in a moment"
+          : youtube && !transcribing
+            ? "Fetching the captions, with timestamps"
+            : media
+              ? "Speech to text, with timestamps"
+              : (READ_SUB[item.source] ?? "Reading the source"),
     },
     {
       label: "Generating notes",
@@ -538,14 +549,76 @@ function TrackingView({
   );
 }
 
+/* ─────────────────────────── Several files ─────────────────────────── */
+
+type Job = { source: PickedSource; state: "waiting" | "posting" | "created" | "error"; id?: string; message?: string };
+
+/** One item per file: each row shows whether its note was started. The library takes over once they all are. */
+function BatchStep({ jobs, onRetry, onBack }: { jobs: Job[]; onRetry: () => void; onBack: () => void }) {
+  const settled = jobs.every((j) => j.state === "created" || j.state === "error");
+  const failed = jobs.filter((j) => j.state === "error").length;
+  return (
+    <div className="max-w-[640px]">
+      <ul className="space-y-2" aria-label="Notes being started">
+        {jobs.map((j, i) => (
+          <li key={i} className="rise flex items-center gap-3 rounded-2xl border border-line bg-card p-3" style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}>
+            <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${j.state === "error" ? "bg-red-50 text-red-600" : "bg-panel text-ink-soft"}`}>
+              {j.state === "error" ? <AlertCircle className="size-4" /> : <SourceIcon kind={j.source.kind} />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm">{j.source.label}</p>
+              {j.state === "error" ? (
+                <p className="mt-0.5 text-[12px] text-red-700">{j.message}</p>
+              ) : (
+                <p className="font-mono text-[10px] tracking-[0.08em] text-muted uppercase">{j.source.detail}</p>
+              )}
+            </div>
+            <span className="shrink-0 font-mono text-[10px] tracking-[0.08em] uppercase">
+              {j.state === "created" ? (
+                <span className="flex items-center gap-1 text-green-800">
+                  <Check className="tick-pop size-3" strokeWidth={3} /> Started
+                </span>
+              ) : j.state === "posting" ? (
+                <span className="flex items-center gap-1 text-ink-soft">
+                  <Loader2 className="spin size-3" /> Sending
+                </span>
+              ) : j.state === "waiting" ? (
+                <span className="text-muted">Waiting</span>
+              ) : (
+                <span className="text-red-600">Not started</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {settled && failed > 0 ? (
+        <div className="rise mt-5 flex flex-wrap items-center gap-2">
+          <button type="button" onClick={onRetry} className="btn btn-red btn-sm">
+            <RotateCcw className="size-3.5" /> Retry {failed === 1 ? "the failed one" : `the ${failed} failed`}
+          </button>
+          <Link href="/app" className="btn btn-ghost btn-sm">
+            Go to library
+          </Link>
+          <button type="button" onClick={onBack} className="btn btn-ghost btn-sm">
+            <ArrowLeft className="size-3.5" /> Change the files
+          </button>
+        </div>
+      ) : (
+        <p className="mt-4 text-[12px] text-muted">{settled ? "All started. Opening your library…" : "Each note keeps processing after this. We’ll take you to your library once they’re all started."}</p>
+      )}
+    </div>
+  );
+}
+
 /* ─────────────────────────── Flow ─────────────────────────── */
 
 const HEADINGS = [
-  { t: "What are we", a: "noting", e: "today?", s: "Upload a file, record a lecture, paste text or add a web page." },
+  { t: "What are we", a: "noting", e: "today?", s: "Paste a YouTube link, upload files, record a lecture, paste text or add a web page." },
   { t: "What", a: "kind", e: "of note is it?", s: "The type decides which outputs we write." },
   { t: "Choose your", a: "outputs", e: ".", s: "Defaults are ticked. Add extras, pick a language, leave instructions." },
   { t: "Turning it into", a: "notes", e: "…", s: "The first output appears as soon as it’s ready." },
 ];
+const BATCH_HEADING = { t: "Turning them into", a: "notes", e: "…", s: "Each file becomes its own note, with the same type, outputs and language." };
 
 /** Adding notes needs a plan with credits left; say so up front instead of failing at step 4. */
 function PlanGate() {
@@ -570,22 +643,62 @@ function PlanGate() {
   );
 }
 
-export function NewFlow() {
-  const invalidate = useInvalidate();
-  const [prefs] = useState(readPrefs);
-  const [step, setStep] = useState(0);
-  const [source, setSource] = useState<PickedSource | null>(null);
-  const [type, setType] = useState<TypeChoice>(prefs.noteType);
-  const [outputs, setOutputs] = useState<OutputKey[] | null>(null);
-  const [lang, setLang] = useState(LANGS.includes(prefs.language) ? prefs.language : LANGS[0]!);
-  const [instructions, setInstructions] = useState("");
-  const [created, setCreated] = useState<Created>({ state: "posting" });
+/** What the picked sources will cost, when we can tell before they're read (media length, text). */
+function estimateCredits(sources: PickedSource[]) {
+  return { credits: sources.reduce((n, s) => n + (s.credits ?? 0), 0), partial: sources.some((s) => s.credits === undefined) };
+}
 
-  const suggested = source ? SUGGEST[source.kind] : null;
+/** Stops the flow when what's picked clearly needs more credits than are left. */
+function CreditCheck({ need, partial, left }: { need: number; partial: boolean; left: number }) {
+  return (
+    <div className="rise mt-6 flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50/70 px-4 py-3 text-[14px] text-red-800 sm:flex-row sm:items-center sm:justify-between" role="alert">
+      <span className="flex items-start gap-2">
+        <AlertCircle className="mt-0.5 size-4 shrink-0" />
+        <span>
+          This needs {partial ? "at least " : "about "}
+          {need.toLocaleString("en-US")} credits and you have {left.toLocaleString("en-US")} left. 1 credit is 1 minute of audio or video, or 1 page. Remove a file or use a shorter part, or upgrade for more.
+        </span>
+      </span>
+      <Link href="/app/billing" className="btn btn-red btn-sm shrink-0">
+        Upgrade
+      </Link>
+    </div>
+  );
+}
+
+export function NewFlow() {
+  const router = useRouter();
+  const invalidate = useInvalidate();
+  const { data: me } = useMe();
+  const { data: settings } = useSettings();
+  const billing = me?.billing;
+  const plan = billing?.plan ? planDef(billing.plan) : null;
+  const limits = useMemo<PlanLimits>(
+    () => ({ maxMediaSeconds: Math.min(plan?.maxMediaSeconds ?? UPLOAD_LIMITS.maxRecordingSeconds, UPLOAD_LIMITS.maxRecordingSeconds), planName: plan?.name ?? null }),
+    [plan],
+  );
+  const creditsLeft = billing?.canUse ? billing.credits.balance : null;
+  const picker = useSourcePicker(limits);
+  const sel = picker.selection;
+
+  const [step, setStep] = useState(0);
+  // Until the user picks, the defaults come from Settings.
+  const [typeChoice, setTypeChoice] = useState<TypeChoice | null>(null);
+  const [langChoice, setLangChoice] = useState<string | null>(null);
+  const type: TypeChoice = typeChoice ?? settings?.defaultNoteType ?? "auto";
+  const lang = langChoice ?? languageLabel(settings?.language);
+  const [outputs, setOutputs] = useState<OutputKey[] | null>(null);
+  const [instructions, setInstructions] = useState("");
+  const [jobs, setJobs] = useState<Job[]>([]);
+
+  const source = sel.sources[0] ?? null;
+  const suggested = sel.firstKind ? SUGGEST[sel.firstKind] : null;
   const selectedOutputs = type === "auto" ? [] : (outputs ?? noteType(type).defaults);
+  const estimate = estimateCredits(sel.sources);
+  const short = creditsLeft !== null && creditsLeft > 0 && estimate.credits > creditsLeft;
 
   const pickType = (v: TypeChoice) => {
-    setType(v);
+    setTypeChoice(v);
     setOutputs(null);
   };
   const toggleOutput = (k: OutputKey) =>
@@ -595,29 +708,55 @@ export function NewFlow() {
       return cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k];
     });
 
-  const generate = async () => {
-    if (!source) return;
-    setStep(3);
-    setCreated({ state: "posting" });
-    const body: CreateSourceRequest = {
-      source: source.input,
-      noteType: type,
-      ...(type !== "auto" && { outputs: selectedOutputs }),
-      language: apiLanguage(lang),
-      ...(instructions.trim() && { instructions: instructions.trim() }),
-    };
-    try {
-      const { item } = await api.createSource(body);
-      setCreated({ state: "created", id: item.id });
-      void invalidate(keys.library);
-    } catch (e) {
-      setCreated({ state: "error", message: errorMessage(e) });
+  const body = (s: PickedSource): CreateSourceRequest => ({
+    source: s.input,
+    noteType: type,
+    ...(type !== "auto" && { outputs: selectedOutputs }),
+    language: apiLanguage(lang),
+    ...(instructions.trim() && { instructions: instructions.trim() }),
+  });
+
+  /** Creates the items one by one (in the order they were added); `only` retries just those rows. */
+  const createAll = async (list: Job[], only?: Set<number>) => {
+    const next = list.map((j, i) => (!only || only.has(i) ? { ...j, state: "waiting" as const, message: undefined } : j));
+    setJobs(next);
+    const out = [...next];
+    for (let i = 0; i < out.length; i++) {
+      if (only && !only.has(i)) continue;
+      out[i] = { ...out[i]!, state: "posting" };
+      setJobs([...out]);
+      try {
+        const { item } = await api.createSource(body(out[i]!.source));
+        out[i] = { ...out[i]!, state: "created", id: item.id };
+      } catch (e) {
+        out[i] = { ...out[i]!, state: "error", message: errorMessage(e) };
+      }
+      setJobs([...out]);
     }
+    void invalidate(keys.library, keys.me, keys.stats, accountKeys.credits);
+    if (out.length > 1 && out.every((j) => j.state === "created")) router.push("/app");
   };
 
-  const canNext = step === 0 ? source !== null : step === 2 ? type === "auto" || selectedOutputs.length > 0 : true;
-  const h = HEADINGS[step]!;
-  const locked = step === 3 && created.state !== "error";
+  const generate = () => {
+    if (!sel.sources.length) return;
+    setStep(3);
+    void createAll(sel.sources.map((s) => ({ source: s, state: "waiting" })));
+  };
+
+  const retryFailed = () => void createAll(jobs, new Set(jobs.flatMap((j, i) => (j.state === "error" ? [i] : []))));
+
+  const uploading = sel.pending > 0;
+  const canNext =
+    step === 0
+      ? sel.sources.length + sel.pending > 0
+      : step === 2
+        ? sel.sources.length > 0 && !uploading && !short && (type === "auto" || selectedOutputs.length > 0)
+        : true;
+  const batch = step === 3 ? jobs.length > 1 : sel.sources.length + sel.pending > 1;
+  const h = step === 3 && batch ? BATCH_HEADING : HEADINGS[step]!;
+  const single = jobs.length === 1 ? jobs[0]! : null;
+  const locked = step === 3 && !jobs.some((j) => j.state === "error");
+  const count = sel.sources.length + sel.pending;
 
   return (
     <div className="mx-auto max-w-[980px]">
@@ -643,23 +782,47 @@ export function NewFlow() {
         </h1>
         <p className="mt-2 text-sm text-ink-soft">{h.s}</p>
 
-        <div className="mt-7">
-          {step === 0 && <SourceStep source={source} onSource={setSource} />}
-          {step === 1 && <TypeStep value={type} suggested={suggested} onChange={pickType} />}
-          {step === 2 && (
-            <OutputsStep
-              typeKey={type}
-              selected={selectedOutputs}
-              onToggle={toggleOutput}
-              lang={lang}
-              onLang={setLang}
-              instructions={instructions}
-              onInstructions={setInstructions}
-            />
-          )}
-          {step === 3 && source && <ProgressStep source={source} auto={type === "auto"} created={created} onBack={() => setStep(0)} />}
-        </div>
+        {step > 0 && (
+          <div className="mt-7">
+            {step === 1 && <TypeStep value={type} suggested={suggested} onChange={pickType} />}
+            {step === 2 && (
+              <OutputsStep
+                typeKey={type}
+                selected={selectedOutputs}
+                onToggle={toggleOutput}
+                lang={lang}
+                onLang={setLangChoice}
+                instructions={instructions}
+                onInstructions={setInstructions}
+              />
+            )}
+            {step === 3 &&
+              (single ? (
+                <ProgressStep
+                  source={single.source}
+                  auto={type === "auto"}
+                  created={
+                    single.state === "created" && single.id
+                      ? { state: "created", id: single.id }
+                      : single.state === "error"
+                        ? { state: "error", message: single.message ?? "Something went wrong. Try again." }
+                        : { state: "posting" }
+                  }
+                  onBack={() => setStep(0)}
+                />
+              ) : (
+                <BatchStep jobs={jobs} onRetry={retryFailed} onBack={() => setStep(0)} />
+              ))}
+          </div>
+        )}
       </div>
+
+      {/* Kept mounted so a recording or the typed link survives a trip to the later steps. */}
+      <div className={step === 0 ? "mt-7" : "hidden"}>
+        <SourceStep picker={picker} limits={limits} creditsLeft={creditsLeft} />
+      </div>
+
+      {step < 3 && short && <CreditCheck need={estimate.credits} partial={estimate.partial} left={creditsLeft} />}
 
       {step < 3 && (
         <div className="sticky bottom-24 z-20 mt-10 flex items-center justify-between gap-3 rounded-full border border-line bg-paper/85 p-2 backdrop-blur-xl lg:bottom-6">
@@ -667,9 +830,11 @@ export function NewFlow() {
             <ArrowLeft className="size-3.5" /> Back
           </button>
           <p className="hidden min-w-0 truncate text-[12px] text-muted sm:block">
-            {source ? (
+            {count > 0 ? (
               <>
-                <span className="text-ink-soft">{source.label}</span>
+                <span className="text-ink-soft">{count > 1 ? `${count} files` : (source?.label ?? "1 file")}</span>
+                {uploading && <> · uploading {Math.floor(sel.progress)}%</>}
+                {sel.failed > 0 && <span className="text-red-600"> · {sel.failed} not added</span>}
                 {step >= 1 && <> · {type === "auto" ? "Auto-detect" : noteType(type).label}</>}
                 {step >= 2 && <> · {type === "auto" ? "default outputs" : `${selectedOutputs.length} outputs`}</>}
               </>
@@ -677,9 +842,9 @@ export function NewFlow() {
               "Pick a source to continue"
             )}
           </p>
-          <button type="button" onClick={() => (step === 2 ? void generate() : setStep((s) => s + 1))} disabled={!canNext} className="btn btn-red btn-sm">
-            {step === 2 ? "Generate notes" : "Continue"}
-            {step === 2 ? <Sparkles className="size-3.5" /> : <ArrowRight className="btn-arrow-right size-3.5" />}
+          <button type="button" onClick={() => (step === 2 ? generate() : setStep((s) => s + 1))} disabled={!canNext} className="btn btn-red btn-sm">
+            {step === 2 ? (uploading ? `Uploading… ${Math.floor(sel.progress)}%` : count > 1 ? `Generate ${sel.sources.length} notes` : "Generate notes") : "Continue"}
+            {step === 2 ? uploading ? <Loader2 className="spin size-3.5" /> : <Sparkles className="size-3.5" /> : <ArrowRight className="btn-arrow-right size-3.5" />}
           </button>
         </div>
       )}

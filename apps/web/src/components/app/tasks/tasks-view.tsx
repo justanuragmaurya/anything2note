@@ -6,12 +6,13 @@ import { AlertCircle, ArrowUpRight, CalendarDays, Download, Loader2, RotateCcw }
 import type { TrackedTask } from "@a2n/shared";
 import { SlidingTabs } from "@/components/ui/sliding-tabs";
 import { Art } from "@/components/ui/art";
-import { api, errorMessage } from "@/lib/api";
+import { api, errorMessage, workspaceApi } from "@/lib/api";
 import { download, tasksCsv } from "@/lib/export";
 import { TASK_KIND_LABELS, fmtDue, relativeDate, todayIso } from "@/lib/format";
 import { noteType } from "@/lib/note-types";
 import { keys, useInvalidate, useTasks } from "@/lib/queries";
 import { AnchorChip, PageHeader, TickBox } from "../ui";
+import { EditTaskButton, TaskEditForm, type TaskEdit } from "./task-editor";
 
 type Group = "lecture" | "due";
 type Filter = "open" | "done" | "all";
@@ -43,12 +44,41 @@ export function TasksView() {
   const { data, error, isPending, refetch, isFetching } = useTasks();
   const invalidate = useInvalidate();
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
+  const [edits, setEdits] = useState<Record<string, TaskEdit>>({});
+  const [editing, setEditing] = useState<string | null>(null);
   const [group, setGroup] = useState<Group>("lecture");
   const [filter, setFilter] = useState<Filter>("open");
   const [leaving, setLeaving] = useState<Record<string, boolean>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const today = todayIso();
-  const items: TrackedTask[] = (data?.tasks ?? []).map((a) => (a.id in overrides ? { ...a, done: overrides[a.id]! } : a));
+  const items: TrackedTask[] = (data?.tasks ?? []).map((a) => ({ ...a, ...edits[a.id], ...(a.id in overrides && { done: overrides[a.id]! }) }));
+
+  /** Optimistic: show the edit now, put the old values back if the API refuses it. */
+  const edit = (a: TrackedTask, patch: TaskEdit) => {
+    setSaveError(null);
+    const prev = edits[a.id];
+    setEdits((e) => ({ ...e, [a.id]: { ...e[a.id], ...patch } }));
+    workspaceApi
+      .editTask(a.id, patch)
+      .then(async () => {
+        await invalidate(keys.tasks, keys.item(a.itemId));
+        // The refetched list has the new values now.
+        setEdits((cur) => {
+          const next = { ...cur };
+          delete next[a.id];
+          return next;
+        });
+      })
+      .catch((e: unknown) => {
+        setEdits((cur) => {
+          const next = { ...cur };
+          if (prev) next[a.id] = prev;
+          else delete next[a.id];
+          return next;
+        });
+        setSaveError(errorMessage(e));
+      });
+  };
 
   const toggle = (a: TrackedTask) => {
     const done = !a.done;
@@ -213,9 +243,21 @@ export function TasksView() {
                     {g.items.map((a) => {
                       const show = visible(a);
                       return (
-                        <li key={a.id} className="accordion-body" data-open={show}>
+                        <li key={a.id} className="accordion-body" data-open={show || editing === a.id}>
                           <div>
-                            <div className={`flex items-start gap-3 border-b border-line px-4 py-3.5 transition-all duration-500 ${leaving[a.id] ? "bg-paper/70" : "hover:bg-paper/50"}`}>
+                            {editing === a.id ? (
+                              <div className="border-b border-line bg-paper/50 px-4 py-3.5">
+                                <TaskEditForm
+                                  task={a}
+                                  onCancel={() => setEditing(null)}
+                                  onSave={(patch) => {
+                                    setEditing(null);
+                                    edit(a, patch);
+                                  }}
+                                />
+                              </div>
+                            ) : (
+                            <div className={`group flex items-start gap-3 border-b border-line px-4 py-3.5 transition-all duration-500 ${leaving[a.id] ? "bg-paper/70" : "hover:bg-paper/50"}`}>
                               <TickBox checked={a.done} onChange={() => toggle(a)} label={a.done ? `Reopen “${a.task}”` : `Complete “${a.task}”`} className="mt-0.5" />
                               <div className="min-w-0 flex-1">
                                 <p className={`text-[14px] transition-all duration-300 ${a.done ? "text-muted line-through decoration-red-400/70" : "text-ink"}`}>{a.task}</p>
@@ -230,7 +272,9 @@ export function TasksView() {
                                   )}
                                 </div>
                               </div>
+                              <EditTaskButton label={`Edit “${a.task}”`} onClick={() => setEditing(a.id)} />
                             </div>
+                            )}
                           </div>
                         </li>
                       );

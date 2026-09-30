@@ -23,10 +23,12 @@ type Props = {
   meta: ReactNode;
   backFooter?: ReactNode;
   size?: "md" | "lg";
+  /** Renders the card text (e.g. as Markdown); plain text by default */
+  renderText?: (text: string) => ReactNode;
 };
 
 /** 3D flip card: nt-colour front with serif question, night back with the answer. */
-export function FlipCard({ front, back, flipped, onFlip, color, meta, backFooter, size = "md" }: Props) {
+export function FlipCard({ front, back, flipped, onFlip, color, meta, backFooter, size = "md", renderText = (t) => t }: Props) {
   const lg = size === "lg";
   return (
     <div
@@ -51,7 +53,7 @@ export function FlipCard({ front, back, flipped, onFlip, color, meta, backFooter
           style={{ background: color }}
         >
           <div className="flex items-center justify-between font-mono text-[10px] tracking-[0.12em] text-ink/60 uppercase">{meta}</div>
-          <p className={`serif-accent leading-[1.1] text-ink not-italic text-balance ${lg ? "text-[30px] sm:text-[40px]" : "text-[26px]"}`}>{front}</p>
+          <p className={`serif-accent leading-[1.1] text-ink not-italic text-balance ${lg ? "text-[30px] sm:text-[40px]" : "text-[26px]"}`}>{renderText(front)}</p>
           <span className="flex items-center gap-1.5 text-xs text-ink/60">
             <RotateCw className="size-3 transition-transform duration-500 group-hover:rotate-180" /> Tap or press space to flip
           </span>
@@ -59,7 +61,7 @@ export function FlipCard({ front, back, flipped, onFlip, color, meta, backFooter
         <div className={`flip-face flip-back flex flex-col justify-between overflow-hidden rounded-[22px] bg-night text-left text-night-text shadow-[0_24px_50px_-28px_rgba(20,10,10,0.8)] ${lg ? "p-7 sm:p-9" : "p-6"}`}>
           <div className="dots-night absolute inset-0 opacity-50" aria-hidden />
           <span className="relative font-mono text-[10px] tracking-[0.12em] text-night-muted uppercase">Answer</span>
-          <p className={`relative leading-snug text-balance ${lg ? "text-[22px] sm:text-[26px]" : "text-lg"}`}>{back}</p>
+          <p className={`relative leading-snug text-balance ${lg ? "text-[22px] sm:text-[26px]" : "text-lg"}`}>{renderText(back)}</p>
           <div className="relative" onClick={(e) => e.stopPropagation()}>
             {backFooter}
           </div>
