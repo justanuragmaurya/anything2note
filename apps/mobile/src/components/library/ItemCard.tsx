@@ -1,6 +1,7 @@
 import { StyleSheet, View } from "react-native";
 import { router } from "expo-router";
-import type { LibraryItem, SourceKind } from "@a2n/shared";
+import { Image } from "expo-image";
+import { youtubeThumbnailUrl, type LibraryItem, type SourceKind } from "@a2n/shared";
 import { Button, Eyebrow, Icon, Label, PressableScale, Skeleton, Small, type IconName } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
 import { fmtDay } from "@/lib/format";
@@ -28,33 +29,42 @@ export function lengthLabel(item: LibraryItem): string {
   if (item.durationSec) return item.durationSec < 60 ? `${Math.round(item.durationSec)} sec` : `${Math.round(item.durationSec / 60)} min`;
   if (item.source === "image") return "Image";
   if (item.pages) return `${item.pages} ${item.pages === 1 ? "page" : "pages"}`;
-  return item.source === "web" ? "Web page" : item.source === "text" ? "Text" : "";
+  return item.source === "web" ? "Web page" : item.source === "youtube" ? "YouTube" : item.source === "text" ? "Text" : "";
 }
 
 /** While "Auto-detect" is still reading, the API has no type yet (it reports "general" with no outputs). */
 export const detecting = (item: LibraryItem) => isWorking(item.status) && item.outputs.length === 0;
 
-export function ItemCard({ item }: { item: LibraryItem }) {
+/** `onLongPress` opens the card's menu (move to a folder…); `folder` names its folder in the meta line. */
+export function ItemCard({ item, folder, onLongPress }: { item: LibraryItem; folder?: string; onLongPress?: () => void }) {
   const nt = noteType(item.noteType);
   const retry = useRetryItem();
   const { status } = item;
   const tint = detecting(item) ? palette.panel : nt.color;
-  const meta = [detecting(item) ? "Detecting type" : nt.label, lengthLabel(item), fmtDay(item.createdAt)].filter(Boolean).join(" · ");
+  const meta = [detecting(item) ? "Detecting type" : nt.label, lengthLabel(item), fmtDay(item.createdAt), folder].filter(Boolean).join(" · ");
 
   return (
     <PressableScale
       scaleTo={0.98}
       onPress={() => router.push({ pathname: "/item/[id]", params: { id: item.id } })}
+      onLongPress={onLongPress}
+      delayLongPress={350}
       style={styles.card}
       accessibilityRole="button"
       accessibilityLabel={item.title}
+      accessibilityHint={onLongPress ? "Long-press for more options" : undefined}
     >
       <View style={[styles.strip, { backgroundColor: tint }]} />
       <View style={styles.body}>
         <View style={styles.top}>
-          <View style={[styles.source, { backgroundColor: tint }]}>
-            <Icon name={SOURCE_ICON[item.source]} size={15} color={palette.ink} />
-          </View>
+          {/* A YouTube video shows its own thumbnail (the user's content) where other kinds show their icon. */}
+          {item.source === "youtube" && item.youtubeId ? (
+            <Image source={{ uri: youtubeThumbnailUrl(item.youtubeId) }} style={[styles.thumb, { backgroundColor: tint }]} contentFit="cover" transition={200} />
+          ) : (
+            <View style={[styles.source, { backgroundColor: tint }]}>
+              <Icon name={SOURCE_ICON[item.source]} size={15} color={palette.ink} />
+            </View>
+          )}
           <View style={{ flex: 1, gap: 3 }}>
             <Label numberOfLines={2}>{item.title}</Label>
             <Small numberOfLines={1}>{meta}</Small>
@@ -116,6 +126,7 @@ const styles = StyleSheet.create({
   body: { flex: 1, padding: 14, paddingLeft: 14 },
   top: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
   source: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  thumb: { width: 60, height: 34, borderRadius: 10 },
   footer: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
   ready: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12 },
   readyDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: palette.success },

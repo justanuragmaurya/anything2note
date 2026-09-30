@@ -9,35 +9,46 @@ import {
   useAudioRecorderState,
   type RecordingOptions,
 } from "expo-audio";
+import { Image } from "expo-image";
 import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from "react-native-reanimated";
-import { UPLOAD_LIMITS, type SourceKind } from "@a2n/shared";
+import { UPLOAD_LIMITS, isYoutubeUrl, planDef, youtubeIdOf, youtubeThumbnailUrl, type SourceKind } from "@a2n/shared";
 import { LiveWaveform } from "@/components/add/LiveWaveform";
 import { RecordButton } from "@/components/add/RecordButton";
 import { SourceTile } from "@/components/add/SourceTile";
-import { Button, Display, Eyebrow, Icon, PressableScale, Rise, Screen, SerifAccent, Small } from "@/components/ui";
+import { Button, Display, Eyebrow, Icon, Label, PressableScale, Rise, Screen, SerifAccent, Small } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
-import { isYouTube, normaliseUrl, pickDocument, pickPhoto, recordingDraft, setDraft, type Draft } from "@/lib/draft";
+import { clearDraft, draftKind, normaliseUrl, pickDocument, pickPhoto, recordingDraft, setDraft, useDraftSubmitting, usePendingDraft, type Draft, type PendingDraft } from "@/lib/draft";
 import { fmtTime } from "@/lib/format";
 import { haptic } from "@/lib/haptics";
 import { showMenu } from "@/lib/menu";
+import { useMe } from "@/lib/queries";
 import { fontFamily, palette } from "@/theme";
 
 type RecState = "idle" | "recording" | "paused";
 type Paste = "link" | "text" | null;
 
 /**
- * Mono AAC at 48 kbps: plenty for speech, and a full 60-minute free recording (~21 MB) stays
- * under the API's 25 MB media limit. Metering drives the live waveform.
+ * Mono AAC at 48 kbps: plenty for speech, and small (~21 MB an hour, so even a 6-hour Pro
+ * recording is ~130 MB). Metering drives the live waveform.
  */
 const REC_OPTIONS: RecordingOptions = { ...RecordingPresets.HIGH_QUALITY, numberOfChannels: 1, bitRate: 48_000, isMeteringEnabled: true };
-const MAX_MS = UPLOAD_LIMITS.maxRecordingSeconds * 1000;
 /** Text under this length is rejected by the API ("Paste at least a few sentences."). */
 const MIN_TEXT = 20;
 
 function startFlow(draft: Draft, source: SourceKind, label: string) {
-  setDraft(draft);
+  setDraft(draft, label);
   router.push({ pathname: "/new/type", params: { source, label } });
 }
+
+/** Picks an unfinished draft (e.g. from before the app closed) back up where it stopped. */
+function resumeFlow(p: PendingDraft) {
+  const source = draftKind(p.draft);
+  if (p.options) router.push({ pathname: "/new/progress", params: { source, label: p.label, type: p.options.noteType } });
+  else router.push({ pathname: "/new/type", params: { source, label: p.label } });
+}
+
+/** "2 h", "90 min" */
+const fmtLimit = (sec: number) => (sec % 3600 === 0 ? `${sec / 3600} h` : `${Math.round(sec / 60)} min`);
 
 /** Metering is dBFS (about -160 silent … 0 loudest); speech sits roughly between -50 and -10. */
 const level = (db: number | undefined) => (db === undefined ? 0 : Math.min(1, Math.max(0, (db + 55) / 45)));
@@ -51,6 +62,12 @@ export default function Add() {
   const [value, setValue] = useState("");
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const pending = usePendingDraft();
+  const submitting = useDraftSubmitting();
+  const billing = useMe().data?.billing;
+  // Recordings stop at the plan's longest recording, so they don't fail after uploading.
+  const plan = billing?.plan ? planDef(billing.plan) : null;
+  const maxMs = (plan?.maxMediaSeconds ?? UPLOAD_LIMITS.maxRecordingSeconds) * 1000;
 
   const seconds = Math.floor(recState.durationMillis / 1000);
 
@@ -93,11 +110,13 @@ export default function Add() {
     }
   };
 
-  // Free recordings stop at the 60-minute limit rather than fail after upload.
   useEffect(() => {
-    if (rec === "recording" && recState.durationMillis >= MAX_MS) void stop();
+    if (rec === "recording" && recState.durationMillis >= maxMs) {
+      void stop();
+      Alert.alert("Recording stopped", `${plan?.name ?? "Your"} plan recordings can be up to ${fmtLimit(maxMs / 1000)}. We're making notes from what you recorded.`);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rec, recState.durationMillis]);
+  }, [rec, recState.durationMillis, maxMs]);
 
   const toggleMain = () => {
     if (rec === "idle") void start();
@@ -135,13 +154,16 @@ export default function Add() {
       { label: "Choose from library", onPress: () => void pick(() => pickPhoto("library")) },
     ]);
 
-  const youTube = paste === "link" && isYouTube(value.trim());
+  // A pasted YouTube link: a video to preview, or a channel/playlist that can't be used.
+  const link = paste === "link" ? normaliseUrl(value) : null;
+  const videoId = link ? youtubeIdOf(link) : null;
+  const notAVideo = !!link && !videoId && isYoutubeUrl(link);
 
   const submitPaste = () => {
     const v = value.trim();
     if (!v) return haptic.warn();
     if (paste === "link") {
-      if (youTube) return haptic.warn();
+      if (notAVideo) return haptic.warn();
       const url = normaliseUrl(v);
       if (!url) {
         haptic.warn();
@@ -149,7 +171,9 @@ export default function Add() {
       }
       setPaste(null);
       setValue("");
-      startFlow({ type: "url", url }, "web", new URL(url).hostname.replace(/^www\./, ""));
+      // The API tells YouTube from web pages; the kind here only shapes the next screens.
+      if (videoId) startFlow({ type: "url", url }, "youtube", "YouTube video");
+      else startFlow({ type: "url", url }, "web", new URL(url).hostname.replace(/^www\./, ""));
     } else {
       if (v.length < MIN_TEXT) {
         haptic.warn();
@@ -167,6 +191,12 @@ export default function Add() {
   };
 
   const live = rec !== "idle";
+
+  const discardPending = () =>
+    Alert.alert("Discard this item?", "What you picked or recorded won't be turned into notes.", [
+      { text: "Keep", style: "cancel" },
+      { text: "Discard", style: "destructive", onPress: clearDraft },
+    ]);
 
   return (
     <Screen>
@@ -186,6 +216,23 @@ export default function Add() {
             <PressableScale onPress={() => setConsent(false)} hitSlop={10} accessibilityLabel="Dismiss">
               <Icon name="close" size={14} color={palette.muted} />
             </PressableScale>
+          </Animated.View>
+        ) : null}
+
+        {pending && !live ? (
+          <Animated.View entering={FadeInDown.delay(60)} exiting={FadeOut.duration(180)} layout={LinearTransition} style={styles.resume}>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Eyebrow color={palette.red600}>{submitting ? "Uploading…" : pending.upload && !pending.upload.done ? "Upload paused" : "Not finished"}</Eyebrow>
+              <Label numberOfLines={1}>{pending.label}</Label>
+            </View>
+            {submitting ? null : (
+              <Button size="sm" variant="ghost" onPress={discardPending}>
+                Discard
+              </Button>
+            )}
+            <Button size="sm" icon="arrowRight" onPress={() => resumeFlow(pending)}>
+              {submitting ? "View" : "Continue"}
+            </Button>
           </Animated.View>
         ) : null}
 
@@ -209,7 +256,9 @@ export default function Add() {
               </Button>
             </Animated.View>
           ) : (
-            <Small style={{ marginTop: 6, textAlign: "center", paddingHorizontal: 28 }}>Keeps recording with the screen locked · 60 min max on Free</Small>
+            <Small style={{ marginTop: 6, textAlign: "center", paddingHorizontal: 28 }}>
+              Keeps recording with the screen locked{plan ? ` · up to ${fmtLimit(plan.maxMediaSeconds)} on ${plan.name}` : ""}
+            </Small>
           )}
           {rec === "paused" ? (
             <Animated.View entering={FadeIn} exiting={FadeOut}>
@@ -224,11 +273,11 @@ export default function Add() {
           <Eyebrow style={{ marginBottom: 12 }}>Or bring something in</Eyebrow>
           <View style={styles.grid}>
             <View style={styles.row}>
-              <SourceTile icon="upload" title="Upload file" hint="PDF, Word, slides · audio & video to 25 MB" tint={palette.tutorial} onPress={() => void pick(pickDocument)} />
+              <SourceTile icon="upload" title="Upload file" hint="PDF, Word, slides, audio & video" tint={palette.tutorial} onPress={() => void pick(pickDocument)} />
               <SourceTile icon="camera" title="Photo" hint="Whiteboards, handouts, pages" tint={palette.lecture} onPress={photo} />
             </View>
             <View style={styles.row}>
-              <SourceTile icon="link" title="Paste link" hint="Articles and web pages" tint={palette.interview} onPress={() => openPaste("link")} />
+              <SourceTile icon="link" title="Paste link" hint="YouTube videos, articles, web pages" tint={palette.interview} onPress={() => openPaste("link")} />
               <SourceTile icon="paste" title="Paste text" hint="Notes, emails, transcripts" tint={palette.podcast} onPress={() => openPaste("text")} />
             </View>
           </View>
@@ -251,10 +300,21 @@ export default function Add() {
                 keyboardType={paste === "link" ? "url" : "default"}
                 style={[styles.pasteInput, paste === "text" && { minHeight: 110, maxHeight: 240, textAlignVertical: "top" }]}
               />
-              {youTube ? (
+              {videoId ? (
+                <Animated.View entering={FadeIn} style={styles.preview}>
+                  <Image source={{ uri: youtubeThumbnailUrl(videoId) }} style={styles.previewThumb} contentFit="cover" transition={200} />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                      <Icon name="youtube" size={14} color={palette.red600} />
+                      <Label>YouTube video</Label>
+                    </View>
+                    <Small numberOfLines={1}>Notes with timestamps back to the video</Small>
+                  </View>
+                </Animated.View>
+              ) : notAVideo ? (
                 <View style={styles.notice}>
                   <Icon name="youtube" size={15} color={palette.red600} />
-                  <Small style={{ flex: 1, color: palette.inkSoft }}>YouTube links are coming soon. For now, paste an article or web page.</Small>
+                  <Small style={{ flex: 1, color: palette.inkSoft }}>That&apos;s a channel or playlist. Paste the link to a single video.</Small>
                 </View>
               ) : pasteError ? (
                 <Small style={{ color: palette.red600 }}>{pasteError}</Small>
@@ -263,7 +323,7 @@ export default function Add() {
                 <Button variant="ghost" size="sm" onPress={() => setPaste(null)}>
                   Cancel
                 </Button>
-                <Button size="sm" icon="arrowRight" onPress={submitPaste} disabled={youTube}>
+                <Button size="sm" icon="arrowRight" onPress={submitPaste} disabled={notAVideo}>
                   Continue
                 </Button>
               </View>
@@ -289,6 +349,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.red100,
   },
+  resume: {
+    marginHorizontal: 20,
+    marginTop: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    paddingLeft: 16,
+    borderRadius: 18,
+    backgroundColor: palette.card,
+    borderWidth: 1,
+    borderColor: palette.lineStrong,
+  },
   recorder: { alignItems: "center", paddingTop: 4, paddingBottom: 20 },
   timer: { fontFamily: fontFamily.mono, fontSize: 20, letterSpacing: 0.5, color: palette.muted },
   controls: { flexDirection: "row", gap: 10, marginTop: 18 },
@@ -306,5 +379,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
+  preview: { flexDirection: "row", alignItems: "center", gap: 12, padding: 8, borderRadius: 14, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.paper },
+  previewThumb: { width: 96, height: 54, borderRadius: 10, backgroundColor: palette.panel },
   notice: { flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 12, backgroundColor: palette.red50 },
 });

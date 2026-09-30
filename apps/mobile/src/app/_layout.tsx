@@ -1,6 +1,6 @@
 import "../global.css";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
@@ -8,8 +8,12 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { ShareIntentProvider } from "expo-share-intent";
+import { OfflineNotice } from "@/components/offline/OfflineNotice";
+import { ShareIntake } from "@/components/share/ShareIntake";
 import { authClient } from "@/lib/auth-client";
+import { clearLocalData, onCacheRestored, persistOptions } from "@/lib/offline";
 import { PreferencesProvider } from "@/lib/preferences";
 import { queryClient } from "@/lib/queries";
 import { fontAssets } from "@/theme/fonts";
@@ -33,6 +37,13 @@ export default function RootLayout() {
     void SystemUI.setBackgroundColorAsync(palette.paper);
   }, []);
 
+  // However the session ended (sign-out, expiry, account deleted), nothing of it stays on the device.
+  const wasSignedIn = useRef(signedIn);
+  useEffect(() => {
+    if (wasSignedIn.current && !signedIn) void clearLocalData();
+    wasSignedIn.current = signedIn;
+  }, [signedIn]);
+
   useEffect(() => {
     if (fontsReady && authReady) SplashScreen.hide();
   }, [fontsReady, authReady]);
@@ -41,43 +52,52 @@ export default function RootLayout() {
   if (!fontsReady || !authReady) return null;
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: palette.paper }}>
-      <QueryClientProvider client={queryClient}>
-        <PreferencesProvider>
-          <StatusBar style="dark" />
-          <Stack
-            screenOptions={{
-              headerShown: false,
-              contentStyle: { backgroundColor: palette.paper },
-              animation: Platform.OS === "android" ? "fade_from_bottom" : "default",
-            }}
-          >
-            {/* When a guard flips (sign-in, sign-out) the router falls back to index, which picks the next screen. */}
-            <Stack.Screen name="index" options={{ animation: "none" }} />
-            <Stack.Protected guard={!signedIn}>
-              <Stack.Screen name="onboarding" options={{ animation: "fade", gestureEnabled: false }} />
-              <Stack.Screen name="sign-in" options={{ animation: "fade", gestureEnabled: false }} />
-            </Stack.Protected>
-            <Stack.Protected guard={signedIn}>
-              <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
-              <Stack.Screen name="item/[id]" options={{ contentStyle: { backgroundColor: palette.night } }} />
-              <Stack.Screen
-                name="new/type"
-                options={{
-                  presentation: "formSheet",
-                  sheetAllowedDetents: [0.82, 1],
-                  sheetGrabberVisible: true,
-                  sheetCornerRadius: 34,
-                  contentStyle: { backgroundColor: palette.paper },
-                }}
-              />
-              <Stack.Screen name="new/outputs" />
-              <Stack.Screen name="new/progress" options={{ gestureEnabled: false }} />
-              <Stack.Screen name="paywall" options={{ presentation: "modal", contentStyle: { backgroundColor: palette.night } }} />
-            </Stack.Protected>
-          </Stack>
-        </PreferencesProvider>
-      </QueryClientProvider>
-    </GestureHandlerRootView>
+    // expo-share-intent wants its provider above the others.
+    <ShareIntentProvider>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: palette.paper }}>
+        {/* The cache is saved on the device so the app opens offline; see lib/offline.ts. */}
+        <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions} onSuccess={onCacheRestored}>
+          <PreferencesProvider>
+            <StatusBar style="dark" />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: palette.paper },
+                animation: Platform.OS === "android" ? "fade_from_bottom" : "default",
+              }}
+            >
+              {/* When a guard flips (sign-in, sign-out) the router falls back to index, which picks the next screen. */}
+              <Stack.Screen name="index" options={{ animation: "none" }} />
+              <Stack.Protected guard={!signedIn}>
+                <Stack.Screen name="onboarding" options={{ animation: "fade", gestureEnabled: false }} />
+                <Stack.Screen name="sign-in" options={{ animation: "fade", gestureEnabled: false }} />
+              </Stack.Protected>
+              <Stack.Protected guard={signedIn}>
+                <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
+                <Stack.Screen name="item/[id]" options={{ contentStyle: { backgroundColor: palette.night } }} />
+                <Stack.Screen
+                  name="new/type"
+                  options={{
+                    presentation: "formSheet",
+                    sheetAllowedDetents: [0.82, 1],
+                    sheetGrabberVisible: true,
+                    sheetCornerRadius: 34,
+                    contentStyle: { backgroundColor: palette.paper },
+                  }}
+                />
+                <Stack.Screen name="new/outputs" />
+                <Stack.Screen name="new/progress" options={{ gestureEnabled: false }} />
+                <Stack.Screen name="paywall" options={{ presentation: "modal", contentStyle: { backgroundColor: palette.night } }} />
+                <Stack.Screen name="share" options={{ animation: "fade", gestureEnabled: false }} />
+                <Stack.Screen name="stats" />
+                <Stack.Screen name="credits" />
+              </Stack.Protected>
+            </Stack>
+            <ShareIntake signedIn={signedIn} />
+            {signedIn ? <OfflineNotice /> : null}
+          </PreferencesProvider>
+        </PersistQueryClientProvider>
+      </GestureHandlerRootView>
+    </ShareIntentProvider>
   );
 }

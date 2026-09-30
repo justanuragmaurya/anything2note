@@ -1,4 +1,5 @@
-import { planDef, type Billing } from "@a2n/shared";
+import { Linking } from "react-native";
+import { planDef, type Billing, type CreditEntry } from "@a2n/shared";
 
 /*
  * Plans are bought and managed on the web (plan.md §8); the app only shows what the API reports.
@@ -31,5 +32,31 @@ export function planSubtitle(b: Billing): string {
       return b.canUse ? `Cancelled · works until ${end}` : "Your plan has ended";
     default:
       return "Your plan has ended";
+  }
+}
+
+/** The web app's origin (apps/web), where plans are bought and managed. */
+export const WEB_URL = (process.env.EXPO_PUBLIC_WEB_URL ?? "https://anything2note.com").replace(/\/$/, "");
+
+/** Plan & billing on the web, in the browser (sign in there with the same account). */
+export const openWebBilling = () => Linking.openURL(`${WEB_URL}/app/billing`);
+
+/** A line in the credit history: what the credits were for. */
+export function creditLabel(e: CreditEntry): string {
+  switch (e.reason) {
+    case "grant":
+      return "Credits for this cycle";
+    case "topup":
+      return "Top-up";
+    case "expire":
+      return "Unused credits expired";
+    case "chat":
+      return "AI chat";
+    case "item_refund":
+      return `Refund · ${e.itemTitle ?? "an item that failed"}`;
+    default: {
+      const size = e.minutes ? `${e.minutes} min` : e.pages ? `${e.pages} ${e.pages === 1 ? "page" : "pages"}` : null;
+      return [e.itemTitle ?? "Deleted item", size].filter(Boolean).join(" · ");
+    }
   }
 }

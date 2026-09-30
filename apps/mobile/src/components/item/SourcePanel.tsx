@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Linking, StyleSheet, View } from "react-native";
 import { Image } from "expo-image";
 import * as WebBrowser from "expo-web-browser";
-import type { LibraryItem } from "@a2n/shared";
+import { youtubeThumbnailUrl, type LibraryItem } from "@a2n/shared";
 import { SOURCE_ICON } from "@/components/library/ItemCard";
 import { NightDots } from "@/components/note-type/NoteTypeShape";
 import { Button, Icon, Label, PressableScale, Small } from "@/components/ui";
@@ -10,21 +10,31 @@ import { palette } from "@/theme";
 
 const HEIGHT = 96;
 
-/** Non-media sources: what the notes were made from, with the original one tap away when it was an upload. */
+const KIND_META: Partial<Record<LibraryItem["source"], string>> = { web: "Web page", youtube: "YouTube video", text: "Pasted text" };
+
+/**
+ * Non-media sources: what the notes were made from, with the original one tap away (the upload,
+ * the web page, or the video on YouTube).
+ */
 export function SourcePanel({ item, mediaUrl, mediaType }: { item: LibraryItem; mediaUrl: string | null; mediaType: string | null }) {
   const [w, setW] = useState(0);
-  const image = !!mediaUrl && !!mediaType?.startsWith("image/");
+  const youtube = item.source === "youtube";
+  const original = mediaUrl ?? item.sourceUrl ?? null;
+  const thumb = mediaUrl && mediaType?.startsWith("image/") ? mediaUrl : youtube && item.youtubeId ? youtubeThumbnailUrl(item.youtubeId) : null;
   const open = () => {
-    if (mediaUrl) void WebBrowser.openBrowserAsync(mediaUrl);
+    if (!original) return;
+    // YouTube links hand off to the app when it's installed.
+    if (youtube) void Linking.openURL(original);
+    else void WebBrowser.openBrowserAsync(original);
   };
-  const meta = item.pages ? `${item.pages} ${item.pages === 1 ? "page" : "pages"}` : item.source === "web" ? "Web page" : item.source === "text" ? "Pasted text" : "";
+  const meta = item.pages ? `${item.pages} ${item.pages === 1 ? "page" : "pages"}` : (KIND_META[item.source] ?? "");
 
   return (
     <View style={styles.panel} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
       {w ? <NightDots width={w} height={HEIGHT} /> : null}
-      {image ? (
-        <PressableScale onPress={open} scaleTo={0.95} accessibilityLabel="Open the original image">
-          <Image source={{ uri: mediaUrl }} style={styles.thumb} contentFit="cover" transition={200} />
+      {thumb ? (
+        <PressableScale onPress={open} scaleTo={0.95} accessibilityLabel={youtube ? "Open on YouTube" : "Open the original image"}>
+          <Image source={{ uri: thumb }} style={[styles.thumb, youtube && styles.video]} contentFit="cover" transition={200} />
         </PressableScale>
       ) : (
         <View style={styles.icon}>
@@ -37,8 +47,8 @@ export function SourcePanel({ item, mediaUrl, mediaType }: { item: LibraryItem; 
         </Label>
         {meta ? <Small style={{ color: palette.nightMuted }}>{meta}</Small> : null}
       </View>
-      {mediaUrl ? (
-        <Button size="sm" variant="night" icon="arrowUpRight" onPress={open}>
+      {original ? (
+        <Button size="sm" variant="night" icon="arrowUpRight" onPress={open} accessibilityLabel={youtube ? "Open on YouTube" : "Open the original"}>
           Open
         </Button>
       ) : null}
@@ -62,4 +72,5 @@ const styles = StyleSheet.create({
   },
   icon: { width: 52, height: 64, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: palette.night3 },
   thumb: { width: 52, height: 64, borderRadius: 10, backgroundColor: palette.night3 },
+  video: { width: 96, height: 54 },
 });

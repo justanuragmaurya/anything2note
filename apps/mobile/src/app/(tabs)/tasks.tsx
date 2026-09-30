@@ -2,12 +2,13 @@ import { useState } from "react";
 import { RefreshControl, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
 import Animated, { FadeOut, LinearTransition } from "react-native-reanimated";
-import type { Anchor } from "@a2n/shared";
+import type { Anchor, TrackedTask } from "@a2n/shared";
+import { TaskEditSheet } from "@/components/tasks/TaskEditSheet";
 import { TaskRow } from "@/components/tasks/TaskRow";
 import { ArtPlaceholder, Body, Button, Display, Eyebrow, Rise, Screen, SerifAccent, Skeleton, SlidingTabs, Small } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
-import { useTasks, useToggleTask } from "@/lib/queries";
+import { useEditTask, useTasks, useToggleTask } from "@/lib/queries";
 import { palette } from "@/theme";
 
 type Tab = "open" | "done";
@@ -18,6 +19,8 @@ const openAt = (itemId: string, a: Anchor) =>
 export default function Tasks() {
   const tasks = useTasks();
   const toggleTask = useToggleTask();
+  const editTask = useEditTask();
+  const [editing, setEditing] = useState<TrackedTask | null>(null);
   const all = tasks.data?.tasks ?? [];
   const [tab, setTab] = useState<Tab>("open");
   const [refreshing, setRefreshing] = useState(false);
@@ -65,6 +68,7 @@ export default function Tasks() {
           />
         </Rise>
         {toggleTask.isError ? <Small style={{ color: palette.red600, marginTop: 10 }}>Couldn&apos;t save that tick: {errorMessage(toggleTask.error)}</Small> : null}
+        {editTask.isError ? <Small style={{ color: palette.red600, marginTop: 10 }}>Couldn&apos;t save that change: {errorMessage(editTask.error)}</Small> : null}
       </View>
       <Animated.FlatList
         data={visible}
@@ -75,7 +79,13 @@ export default function Tasks() {
         renderItem={({ item, index }) => (
           <Animated.View exiting={FadeOut.duration(200)} style={{ paddingHorizontal: 20 }}>
             <Rise index={Math.min(index, 6)} delay={100}>
-              <TaskRow item={item} onToggle={() => toggle(item.id, !item.done, item.itemId)} source={item.itemTitle} onAnchor={(a) => openAt(item.itemId, a)} />
+              <TaskRow
+                item={item}
+                onToggle={() => toggle(item.id, !item.done, item.itemId)}
+                source={item.itemTitle}
+                onAnchor={(a) => openAt(item.itemId, a)}
+                onEdit={() => setEditing(item)}
+              />
             </Rise>
           </Animated.View>
         )}
@@ -125,6 +135,14 @@ export default function Tasks() {
           )
         }
       />
+      {editing ? (
+        <TaskEditSheet
+          task={editing}
+          source={editing.itemTitle}
+          onClose={() => setEditing(null)}
+          onSave={(patch) => editTask.mutate({ id: editing.id, patch, itemId: editing.itemId })}
+        />
+      ) : null}
     </Screen>
   );
 }
