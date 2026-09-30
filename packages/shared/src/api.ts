@@ -29,10 +29,12 @@ export type LibraryItem = {
   title: string;
   noteType: NoteTypeKey;
   source: SourceKind;
-  /** File name, domain, or "Pasted text" */
+  /** File name, domain, YouTube channel, or "Pasted text" */
   sourceLabel: string;
-  /** The original link, for web sources */
+  /** The original link, for web and YouTube sources */
   sourceUrl?: string;
+  /** For YouTube sources: the video to embed (anchors seek it) */
+  youtubeId?: string;
   durationSec?: number;
   pages?: number;
   /** Unix ms */
@@ -88,6 +90,8 @@ export type OutputEntry = {
   status: "queued" | "running" | "ready" | "failed";
   data?: OutputData;
   error?: string;
+  /** This user edited or regenerated it, so they have their own copy (others' shared copy is untouched) */
+  custom?: boolean;
 };
 
 /* ───────────── Item workspace ───────────── */
@@ -105,20 +109,36 @@ export type ItemDetail = {
   mediaUrl: string | null;
   mediaType: string | null;
   chat: ChatMessage[];
+  /** The read-only link, if the user has shared this item */
+  share: Share | null;
 };
 
 /* ───────────── Creating items ───────────── */
 
-/** POST /api/uploads → PUT the file bytes to `url` with `headers`, then create a source with `uploadId`. */
+/**
+ * POST /api/uploads, then create a source with `uploadId`:
+ * - `single`: PUT the whole file to `url` with `headers`.
+ * - `multipart` (files over UPLOAD_LIMITS.multipartThresholdBytes): PUT each `partBytes` slice of the file
+ *   to its part's `url` (part 1 = the first slice), read each response's `ETag` header, then
+ *   POST /api/uploads/:uploadId/complete with every part's number and ETag.
+ */
 export type CreateUploadRequest = { filename: string; contentType: string; size: number };
-export type CreateUploadResponse = { uploadId: string; url: string; headers: Record<string, string>; expiresAt: number };
+export type CreateUploadResponse =
+  | { uploadId: string; mode: "single"; url: string; headers: Record<string, string>; expiresAt: number }
+  | { uploadId: string; mode: "multipart"; partBytes: number; parts: { number: number; url: string }[]; expiresAt: number };
+/** POST /api/uploads/:id/complete → 200 { ok: true } */
+export type CompleteUploadRequest = { parts: { number: number; etag: string }[] };
 
 export type SourceInput =
   | { type: "upload"; uploadId: string; recording?: boolean }
   | { type: "text"; text: string; title?: string }
+  /** A web page or a YouTube video link (the API tells them apart) */
   | { type: "url"; url: string };
 
-/** POST /api/sources */
+/**
+ * POST /api/sources → 201 with the new item. A public YouTube video the user already has returns
+ * 200 with that item instead of a duplicate.
+ */
 export type CreateSourceRequest = {
   source: SourceInput;
   noteType: NoteTypeKey | "auto";
@@ -130,19 +150,83 @@ export type CreateSourceRequest = {
 };
 export type CreateSourceResponse = { item: LibraryItem };
 
-/** PATCH /api/sources/:id */
-export type UpdateSourceRequest = { title?: string; folderId?: string | null };
+/**
+ * PATCH /api/sources/:id → { item }. Changing `noteType` switches the item to that type's default
+ * outputs and generates whichever are missing (no extra credits); poll the item as after creating it.
+ */
+export type UpdateSourceRequest = { title?: string; folderId?: string | null; noteType?: NoteTypeKey };
 
-/** POST /api/sources/:id/chat */
+/* ───────────── Output actions (all free: credits are per minute/page, not per output) ───────────── */
+
+/** POST /api/sources/:id/outputs → { item }: generates extra outputs; poll GET /sources/:id. */
+export type AddOutputsRequest = { outputs: OutputKey[] };
+/**
+ * POST /api/sources/:id/outputs/:output/regenerate → { item }: a fresh version for this user only
+ * (becomes `custom`), optionally steered by `instructions`; poll GET /sources/:id.
+ */
+export type RegenerateOutputRequest = { instructions?: string };
+/**
+ * PATCH /api/sources/:id/outputs/:output → { output }: saves a manual edit as this user's own copy.
+ * `data.type` must match the output's shape. Editing flashcards resets their review schedule;
+ * editing tasks keeps ticks for tasks whose text is unchanged.
+ */
+export type EditOutputRequest = { data: OutputData };
+export type EditOutputResponse = { output: OutputEntry };
+/** DELETE /api/sources/:id/outputs/:output/custom → { item }: drops this user's copy and goes back to the shared one. */
+export type ItemResponse = { item: LibraryItem };
+
+/**
+ * POST /api/sources/:id/chat. With `Accept: text/event-stream` the answer streams as server-sent
+ * events (`ChatStreamEvent`, one JSON object per `data:` line); otherwise it's one JSON `ChatResponse`.
+ */
 export type ChatRequest = { message: string };
 export type ChatResponse = { message: ChatMessage };
+export type ChatStreamEvent =
+  /** More answer text, in order; append it */
+  | { type: "delta"; text: string }
+  /** The saved reply (full text + citations); replaces the streamed text */
+  | { type: "done"; message: ChatMessage }
+  | { type: "error"; error: { code: string; message: string } };
+
+/* ───────────── Sharing ───────────── */
+
+/** A read-only link to one item's outputs. */
+export type Share = { slug: string; url: string; createdAt: number };
+/** POST /api/sources/:id/share → { share } (returns the existing link if there is one) · DELETE /api/sources/:id/share → 204 */
+export type ShareResponse = { share: Share };
+/** GET /api/public/shares/:slug — no session needed. 404 once the owner stops sharing or deletes the item. */
+export type SharedItem = {
+  title: string;
+  noteType: NoteTypeKey;
+  source: SourceKind;
+  sourceLabel: string;
+  sourceUrl?: string;
+  youtubeId?: string;
+  durationSec?: number;
+  pages?: number;
+  createdAt: number;
+  /** First name of whoever shared it */
+  sharedBy: string;
+  /** Ready outputs only, in the owner's display order */
+  outputs: { key: OutputKey; data: OutputData }[];
+};
+
+/* ───────────── Exports ───────────── */
+
+/**
+ * GET /api/sources/:id/export?format=docx|html&outputs=detailed_notes,flashcards (outputs optional:
+ * all ready ones). `docx` downloads a Word file; `html` is a self-contained print-ready page that
+ * apps turn into a PDF (browser print dialog on web, expo-print on mobile). Markdown and Anki CSV
+ * stay client-side.
+ */
+export type ExportFormat = "docx" | "html";
 
 /* ───────────── Tasks, review, quiz ───────────── */
 
 export type TrackedTask = Task & { itemId: string; itemTitle: string; itemDate: number; noteType: NoteTypeKey };
 export type TasksResponse = { tasks: TrackedTask[] };
-/** PATCH /api/tasks/:id */
-export type UpdateTaskRequest = { done: boolean };
+/** PATCH /api/tasks/:id — any subset; `due` is yyyy-mm-dd or null ("Not mentioned") */
+export type UpdateTaskRequest = { done?: boolean; task?: string; kind?: TaskKind; due?: string | null };
 
 export type ReviewCard = Flashcard & { itemId: string; itemTitle: string; noteType: NoteTypeKey };
 export type DueCardsResponse = { cards: ReviewCard[] };
@@ -177,15 +261,52 @@ export type StatsResponse = {
   billing: Billing;
 };
 
+/* ───────────── Settings ───────────── */
+
+/** GET /api/settings → { settings } · PATCH /api/settings (any subset) → { settings }. Synced across devices. */
+export type UserSettings = {
+  /** Pre-selected in the add flow */
+  defaultNoteType: NoteTypeKey | "auto";
+  /** Output language; "auto" = same as the source */
+  language: string;
+  /** Delete uploaded files and recordings once their notes are made (the transcript/text is kept) */
+  deleteOriginals: boolean;
+  /** Email when an item's notes are ready */
+  emailNotesReady: boolean;
+  /** Morning email when flashcards are due or tasks are due that day */
+  emailReminders: boolean;
+};
+export type SettingsResponse = { settings: UserSettings };
+
+/* ───────────── Credit history ───────────── */
+
+export type CreditEntry = {
+  id: string;
+  /** Unix ms */
+  at: number;
+  /** Positive = added, negative = spent */
+  delta: number;
+  reason: "grant" | "item" | "item_refund" | "chat" | "expire" | "topup";
+  itemId?: string;
+  itemTitle?: string;
+  /** What an item charge bought */
+  minutes?: number;
+  pages?: number;
+};
+/** GET /api/billing/credits?before=<unix ms> → newest first, 50 per page; `next` is the `before` for the next page */
+export type CreditHistoryResponse = { entries: CreditEntry[]; next: number | null };
+
 /* ───────────── Limits ───────────── */
 
 /** What the API can process today, whatever the plan (plan limits are in billing.ts). */
 export const UPLOAD_LIMITS = {
   maxUploadBytes: 200 * 1024 * 1024,
-  /** Groq Whisper takes files up to 25 MB; bigger media needs the (not yet built) processor. */
-  maxMediaBytes: 25 * 1024 * 1024,
-  /** In-app recordings stop here; a 25 MB file holds about this much speech. */
-  maxRecordingSeconds: 60 * 60,
+  /** Audio/video over 25 MB is split into Whisper-sized chunks by the processor. Length is limited by the plan (`maxMediaSeconds`). */
+  maxMediaBytes: 2 * 1024 * 1024 * 1024,
+  /** Uploads bigger than this use multipart (see CreateUploadResponse) */
+  multipartThresholdBytes: 50 * 1024 * 1024,
+  /** In-app recordings stop at the plan's maxMediaSeconds; this is the ceiling across plans. */
+  maxRecordingSeconds: 6 * 3600,
 } as const;
 
 /** Upload types the API can process today. */

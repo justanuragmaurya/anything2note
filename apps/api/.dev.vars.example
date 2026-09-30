@@ -16,3 +16,8 @@ DODO_PAYMENTS_TEST_API_KEY=
 DODO_PAYMENTS_TEST_WEBHOOK_KEY=
 DODO_PAYMENTS_LIVE_API_KEY=
 DODO_PAYMENTS_LIVE_WEBHOOK_KEY=
+# YouTube Data API v3 key (Google Cloud → Credentials), restricted to that API; used for video metadata
+YOUTUBE_API_KEY=
+# Optional, for the processor if YouTube blocks Cloudflare IPs: proxy URL and a base64 Netscape cookies.txt
+YTDLP_PROXY=
+YTDLP_COOKIES=

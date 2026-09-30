@@ -21,6 +21,10 @@ export const uploads = sqliteTable("uploads", {
   filename: text("filename").notNull(),
   contentType: text("content_type").notNull(),
   size: integer("size").notNull(),
+  /** R2 multipart upload id, for files sent in parts (null for a single PUT) */
+  multipartId: text("multipart_id"),
+  /** Set once a multipart upload is completed */
+  completedAt: integer("completed_at"),
   createdAt: integer("created_at").notNull().default(now),
 });
 
@@ -41,17 +45,29 @@ export const sources = sqliteTable(
     language: text("language"),
     extractionMethod: text("extraction_method"),
     contentR2Key: text("content_r2_key"),
-    /** queued | extracting | transcribing | generating | ready | failed */
+    /**
+     * Extraction only (what each user sees is on user_sources): queued | extracting |
+     * transcribing | ready | failed. Kept for older rows, which also used generating.
+     */
     status: text("status").notNull().default("queued"),
     progress: integer("progress").notNull().default(0),
     error: text("error"),
+    /** Workflow instance currently extracting this source; others wait (updated_at is its heartbeat). */
+    processingBy: text("processing_by"),
     createdAt: integer("created_at").notNull().default(now),
     updatedAt: integer("updated_at").notNull().default(now),
   },
-  (t) => [index("sources_owner_idx").on(t.ownerUserId)],
+  (t) => [
+    index("sources_owner_idx").on(t.ownerUserId),
+    // A public YouTube video is one shared source, whoever adds it (plan.md §3 key principle 1).
+    uniqueIndex("sources_shared_ref_idx").on(t.kind, t.sourceRef).where(sql`visibility = 'shared'`),
+  ],
 );
 
-/** One per source × output (private sources only for now, so the owner is implied by the source). */
+/**
+ * One per source × variant × note type × language × output. Users who add the same shared source
+ * with the same choices read the same rows; custom instructions give a user their own variant.
+ */
 export const generations = sqliteTable(
   "generations",
   {
@@ -59,6 +75,11 @@ export const generations = sqliteTable(
     sourceId: text("source_id")
       .notNull()
       .references(() => sources.id, { onDelete: "cascade" }),
+    /**
+     * "shared", or a user id for that user's own copy: all their outputs when they gave custom
+     * instructions, or one output they edited or regenerated. A user's own row wins over the shared one.
+     */
+    variant: text("variant").notNull().default("shared"),
     noteType: text("note_type").notNull(),
     outputType: text("output_type").notNull(),
     language: text("language").notNull().default("auto"),
@@ -68,10 +89,12 @@ export const generations = sqliteTable(
     model: text("model"),
     promptVersion: text("prompt_version"),
     error: text("error"),
+    /** Workflow instance generating it while running (updated_at is its heartbeat) */
+    runId: text("run_id"),
     createdAt: integer("created_at").notNull().default(now),
     updatedAt: integer("updated_at").notNull().default(now),
   },
-  (t) => [uniqueIndex("generations_source_output_idx").on(t.sourceId, t.outputType)],
+  (t) => [uniqueIndex("generations_key_idx").on(t.sourceId, t.variant, t.noteType, t.language, t.outputType)],
 );
 
 export const folders = sqliteTable(
@@ -99,8 +122,14 @@ export const userSources = sqliteTable(
     instructions: text("instructions"),
     folderId: text("folder_id").references(() => folders.id, { onDelete: "set null" }),
     titleOverride: text("title_override"),
+    /** What this user sees: queued | extracting | transcribing | generating | ready | failed */
+    status: text("status").notNull().default("queued"),
+    progress: integer("progress").notNull().default(0),
+    error: text("error"),
     addedAt: integer("added_at").notNull().default(now),
     lastOpenedAt: integer("last_opened_at"),
+    /** Always set explicitly (SQLite can't add a column with a computed default) */
+    updatedAt: integer("updated_at").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.userId, t.sourceId] }), index("user_sources_added_idx").on(t.userId, t.addedAt)],
 );
@@ -290,3 +319,47 @@ export const billingEvents = sqliteTable("billing_events", {
   payloadJson: text("payload_json").notNull(),
   receivedAt: integer("received_at").notNull().default(now),
 });
+
+/* ───────────── Sharing, settings, reminders ───────────── */
+
+/** A read-only public link to one user's item (their outputs as they see them). */
+export const shares = sqliteTable(
+  "shares",
+  {
+    /** URL slug */
+    id: text("id").primaryKey(),
+    userId: ownerId(),
+    sourceId: text("source_id")
+      .notNull()
+      .references(() => sources.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull().default(now),
+  },
+  (t) => [uniqueIndex("shares_user_source_idx").on(t.userId, t.sourceId)],
+);
+
+/** UserSettings from @a2n/shared; a missing row means the defaults. */
+export const userSettings = sqliteTable("user_settings", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  defaultNoteType: text("default_note_type").notNull().default("auto"),
+  language: text("language").notNull().default("auto"),
+  deleteOriginals: integer("delete_originals", { mode: "boolean" }).notNull().default(false),
+  emailNotesReady: integer("email_notes_ready", { mode: "boolean" }).notNull().default(true),
+  emailReminders: integer("email_reminders", { mode: "boolean" }).notNull().default(true),
+  updatedAt: integer("updated_at").notNull().default(now),
+});
+
+/** One row per reminder email sent, so the daily cron never sends the same one twice. */
+export const reminderLog = sqliteTable(
+  "reminder_log",
+  {
+    userId: ownerId(),
+    /** e.g. "daily" */
+    kind: text("kind").notNull(),
+    /** IST day number (lib/http istDay) */
+    day: integer("day").notNull(),
+    sentAt: integer("sent_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.kind, t.day] })],
+);

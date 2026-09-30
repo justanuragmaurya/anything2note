@@ -3,8 +3,9 @@ import { z } from "zod";
 
 /*
  * Provider-agnostic LLM client (plan §5.4): any OpenAI-compatible chat API, configured by
- * LLM_BASE_URL / LLM_API_KEY / MODEL_*. Every call asks for JSON matching a zod schema, validates
+ * LLM_BASE_URL / LLM_API_KEY / MODEL_*. `llmJSON` asks for JSON matching a zod schema, validates
  * it, repairs once on a bad shape, and falls back to MODEL_FALLBACK on provider errors.
+ * `llmStream` streams plain text (chat).
  */
 
 export type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
@@ -15,8 +16,8 @@ export class LlmError extends Error {}
 /** Reasoning models (e.g. MiMo) think before answering; that eats max_tokens, so callers choose how much. */
 export type Reasoning = "off" | "low" | "medium";
 
-async function complete(model: string, messages: Message[], jsonSchema: object, maxTokens: number, reasoning: Reasoning): Promise<string> {
-  const res = await fetch(`${env.LLM_BASE_URL}/chat/completions`, {
+function request(model: string, messages: Message[], maxTokens: number, reasoning: Reasoning, extra: object) {
+  return fetch(`${env.LLM_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${env.LLM_API_KEY}`,
@@ -31,8 +32,14 @@ async function complete(model: string, messages: Message[], jsonSchema: object, 
       reasoning: reasoning === "off" ? { enabled: false } : { effort: reasoning, exclude: true },
       // OpenRouter otherwise may route to a slow host; on MiMo this is ~4x faster for long notes.
       provider: { sort: "throughput" },
-      response_format: { type: "json_schema", json_schema: { name: "output", strict: false, schema: jsonSchema } },
+      ...extra,
     }),
+  });
+}
+
+async function complete(model: string, messages: Message[], jsonSchema: object, maxTokens: number, reasoning: Reasoning): Promise<string> {
+  const res = await request(model, messages, maxTokens, reasoning, {
+    response_format: { type: "json_schema", json_schema: { name: "output", strict: false, schema: jsonSchema } },
   });
   if (!res.ok) throw new LlmError(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const body = (await res.json()) as { choices?: { message?: { content?: string }; finish_reason?: string }[]; error?: { message?: string } };
@@ -90,5 +97,48 @@ export async function llmJSON<T>(opts: {
   } catch (e) {
     if (env.MODEL_FALLBACK && env.MODEL_FALLBACK !== opts.model) return attempt(env.MODEL_FALLBACK);
     throw e;
+  }
+}
+
+/**
+ * Streams a plain-text answer, yielding text as it arrives. Falls back to MODEL_FALLBACK only if
+ * the first model fails before sending anything (a half-sent answer can't be restarted).
+ */
+export async function* llmStream(opts: { model: string; system: string; user: string; maxTokens?: number; reasoning?: Reasoning }): AsyncGenerator<string> {
+  const messages: Message[] = [
+    { role: "system", content: opts.system },
+    { role: "user", content: opts.user },
+  ];
+  const open = async (model: string) => {
+    const res = await request(model, messages, opts.maxTokens ?? 4000, opts.reasoning ?? "off", { stream: true });
+    if (!res.ok || !res.body) throw new LlmError(`LLM ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    return res.body;
+  };
+  let body: ReadableStream<Uint8Array>;
+  try {
+    body = await open(opts.model);
+  } catch (e) {
+    if (!env.MODEL_FALLBACK || env.MODEL_FALLBACK === opts.model) throw e;
+    body = await open(env.MODEL_FALLBACK);
+  }
+
+  // Server-sent events: `data: {chunk}` lines, `: comment` keep-alives, then `data: [DONE]`.
+  const reader = body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buf += value;
+    for (let nl = buf.indexOf("\n"); nl >= 0; nl = buf.indexOf("\n")) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (payload === "[DONE]") return;
+      const chunk = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[]; error?: { message?: string } };
+      if (chunk.error) throw new LlmError(`LLM stream error: ${chunk.error.message ?? "unknown"}`);
+      const text = chunk.choices?.[0]?.delta?.content;
+      if (text) yield text;
+    }
   }
 }

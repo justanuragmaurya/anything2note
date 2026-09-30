@@ -100,22 +100,23 @@ export async function spend(userId: string, amount: number, reason: "item" | "ch
   return true;
 }
 
-async function itemRows(sourceId: string) {
+/** A shared source is charged to every user who adds it, so rows are per user and source. */
+async function itemRows(userId: string, sourceId: string) {
   return db
     .select({ bucketId: creditLedger.bucketId, delta: creditLedger.delta })
     .from(creditLedger)
-    .where(and(eq(creditLedger.sourceId, sourceId), inArray(creditLedger.reason, ["item", "item_refund"])));
+    .where(and(eq(creditLedger.userId, userId), eq(creditLedger.sourceId, sourceId), inArray(creditLedger.reason, ["item", "item_refund"])));
 }
 
-/** Net credits currently charged for a source (so a retry doesn't charge twice). */
-export async function chargedFor(sourceId: string): Promise<number> {
-  return -(await itemRows(sourceId)).reduce((n, r) => n + r.delta, 0);
+/** Net credits currently charged to a user for a source (so a retry doesn't charge twice). */
+export async function chargedFor(userId: string, sourceId: string): Promise<number> {
+  return -(await itemRows(userId, sourceId)).reduce((n, r) => n + r.delta, 0);
 }
 
-/** Gives back everything charged for a source, to the buckets it came from. */
+/** Gives back everything a user was charged for a source, to the buckets it came from. */
 export async function refundItem(userId: string, sourceId: string) {
   const net = new Map<string, number>();
-  for (const r of await itemRows(sourceId)) if (r.bucketId) net.set(r.bucketId, (net.get(r.bucketId) ?? 0) + r.delta);
+  for (const r of await itemRows(userId, sourceId)) if (r.bucketId) net.set(r.bucketId, (net.get(r.bucketId) ?? 0) + r.delta);
   const ops: BatchItem<"sqlite">[] = [];
   for (const [bucketId, delta] of net) {
     if (delta >= 0) continue;

@@ -8,7 +8,7 @@ export type ExtractedContent = {
   durationSec?: number;
   pages?: number;
   language?: string;
-  method: "plain" | "readability" | "pdf_text" | "office_xml" | "vision" | "whisper";
+  method: "plain" | "readability" | "pdf_text" | "office_xml" | "vision" | "whisper" | "manual_captions" | "auto_captions";
 };
 
 export const contentKey = (sourceId: string) => `content/${sourceId}.json`;
