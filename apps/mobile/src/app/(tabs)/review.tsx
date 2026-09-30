@@ -4,7 +4,7 @@ import { router } from "expo-router";
 import Animated, { FadeIn, FadeInDown, ZoomIn } from "react-native-reanimated";
 import type { Anchor, ReviewCard } from "@a2n/shared";
 import { Flashcard, type FlashcardHandle, type Rating } from "@/components/review/Flashcard";
-import { ArtPlaceholder, Body, Button, Display, Eyebrow, Mono, PressableScale, ProgressBar, Rise, Screen, SerifAccent, Skeleton, Small } from "@/components/ui";
+import { ArtPlaceholder, Body, Button, Display, Eyebrow, Icon, Mono, PressableScale, ProgressBar, Rise, Screen, SerifAccent, Skeleton, Small } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
 import { fmtUntil } from "@/lib/format";
 import { haptic } from "@/lib/haptics";
@@ -113,9 +113,15 @@ export default function Review() {
             </Mono>
           ) : null}
         </View>
-        <Display size={40} style={{ marginTop: 6 }}>
-          Daily <SerifAccent size={46}>review</SerifAccent>
-        </Display>
+        <View style={styles.titleRow}>
+          <Display size={40} style={{ marginTop: 6 }}>
+            Daily <SerifAccent size={46}>review</SerifAccent>
+          </Display>
+          <PressableScale onPress={() => router.push("/stats")} style={styles.statsBtn} accessibilityRole="button" accessibilityLabel="Your stats">
+            <Icon name="bolt" size={13} color={palette.red600} />
+            <Small style={{ color: palette.ink, fontSize: 13 }}>Stats</Small>
+          </PressableScale>
+        </View>
         <ProgressBar value={total ? reviewed / total : 0} style={{ marginTop: 14 }} />
         {saveError ? <Small style={{ color: palette.red600, marginTop: 8 }}>{saveError}</Small> : null}
       </Rise>
@@ -213,6 +219,18 @@ export default function Review() {
 
 const styles = StyleSheet.create({
   headRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  titleRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
+  statsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 34,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: palette.lineStrong,
+    backgroundColor: palette.card,
+  },
   done: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
   ratings: { flexDirection: "row", gap: 8, paddingHorizontal: 20, paddingBottom: 18 },
   rate: {

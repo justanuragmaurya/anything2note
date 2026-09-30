@@ -61,7 +61,7 @@ export const PRIVACY: LegalDoc = {
           list: [
             "To provide the Service: transcribe, extract and generate outputs from your content, and answer your questions about it.",
             "To run your account: authentication, plan limits, billing and account notices.",
-            "To keep the Service secure: detect abuse, prevent fraud and protect free quotas from bots.",
+            "To keep the Service secure: detect abuse, prevent fraud and protect free-trial credits from bots.",
             "To improve the Service using aggregated, de-identified usage metrics. Never the contents of your uploads.",
           ],
         },
@@ -79,7 +79,7 @@ export const PRIVACY: LegalDoc = {
             "Cloud infrastructure and storage: [e.g. Cloudflare], [e.g. Vercel].",
             "Speech-to-text and language model providers: [list providers and regions].",
             "Authentication: Google and Apple, if you choose those sign-in methods.",
-            "Payments: Razorpay (India), Dodo Payments (merchant of record outside India), and Apple, Google and RevenueCat for in-app purchases.",
+            "Payments: Dodo Payments, which sells subscriptions to you as merchant of record.",
             "Email delivery: [email provider], for sign-in codes and account notices.",
           ],
         },
@@ -93,7 +93,7 @@ export const PRIVACY: LegalDoc = {
         "We keep your content for as long as your account is active, unless you delete it sooner.",
         {
           list: [
-            "Auto-delete originals: when enabled (on by default for class recordings), original files are deleted right after processing. Your notes and transcripts remain.",
+            "Delete originals after processing: an account setting, off unless you turn it on. When it's on, uploaded files and recordings are deleted once their notes are made. Your notes, transcripts and flashcards remain.",
             "Deleting an item removes its original file, transcript and outputs from our active systems immediately and from backups within [30] days.",
             "Deleting your account removes all your content within [30] days. We keep limited billing records for as long as tax law requires (currently up to 8 years in India).",
           ],
@@ -179,7 +179,7 @@ export const TERMS: LegalDoc = {
   title: { before: "Terms of", accent: "service" },
   updated: UPDATED,
   summary:
-    "Use anything2note for content you have the right to use. Keep your account secure. Check AI outputs before relying on them. Pay for Pro if you use it. You can leave any time.",
+    "Use anything2note for content you have the right to use. Keep your account secure. Check AI outputs before relying on them. After the 7-day trial, pay for the plan you use. You can leave any time.",
   sections: [
     {
       id: "agreement",
@@ -196,7 +196,7 @@ export const TERMS: LegalDoc = {
           list: [
             "You must be at least 13, and have a parent's or guardian's consent if you are under the age of majority where you live (18 in India).",
             "Give us accurate information and keep your sign-in methods secure. You are responsible for activity on your account.",
-            "One person per account. Don't create multiple free accounts to get around usage limits.",
+            "One person per account. Don't create multiple accounts to get extra free trials or get around usage limits.",
           ],
         },
       ],
@@ -205,12 +205,12 @@ export const TERMS: LegalDoc = {
       id: "plans-billing",
       heading: "Plans, billing and renewal",
       blocks: [
-        "Free plans have monthly limits on media minutes and document pages. Pro is a paid subscription, billed monthly or yearly in advance.",
+        "anything2note is a paid subscription with three plans (Starter, Plus and Pro), billed monthly in advance. Each plan includes a monthly allowance of credits (1 credit is 1 minute of audio or video, or 1 document page) and AI chat messages. Unused credits don't roll over.",
+        "Every plan starts with a 7-day free trial with a capped allowance of credits and chat messages. A card is required to start it. You won't be charged until the trial ends, and if you cancel before then you won't be charged at all. One trial per account.",
         {
           list: [
-            "Subscriptions renew automatically at the end of each period until you cancel. For Indian recurring payments, you'll get the pre-debit notice required by RBI rules.",
-            "Prices are shown at checkout and include applicable taxes where required (for example GST in India). Outside India, Dodo Payments sells the subscription to you as merchant of record, and its terms also apply to the purchase.",
-            "In-app subscriptions are billed by Apple or Google under their terms.",
+            "Subscriptions renew automatically at the end of each period until you cancel. Where local rules require a pre-debit notice (for example RBI rules for Indian cards), you'll get one.",
+            "Prices are in USD and shown at checkout, with applicable taxes (for example GST in India) added where required. Dodo Payments sells the subscription to you as merchant of record, and its terms also apply to the purchase.",
             "We may change prices for future periods with at least 30 days' notice. Changes never apply to a period you've already paid for.",
           ],
         },
@@ -315,37 +315,24 @@ export const TERMS: LegalDoc = {
 export const REFUNDS: LegalDoc = {
   slug: "refunds",
   metaTitle: "Refund policy",
-  description: "When and how anything2note refunds subscriptions bought on the web, and what to do about App Store and Google Play purchases.",
+  description: "When and how anything2note refunds subscriptions, and how the 7-day free trial works.",
   title: { before: "Refund", accent: "policy" },
   updated: UPDATED,
   summary:
-    "Try Free first. Monthly plans can be cancelled any time. Yearly plans get a full refund within 7 days if you've barely used them. Mistaken and duplicate charges are always refunded.",
+    "Every plan starts with a 7-day free trial, so try it first. Cancel before the trial ends and you're never charged. Monthly plans can be cancelled any time. Mistaken and duplicate charges are always refunded.",
   sections: [
     {
       id: "free-first",
       heading: "Try before you pay",
       blocks: [
-        "The Free plan includes every note type and output, so you can check that anything2note works for your content before subscribing. Because of that, and because processing costs us real money the moment you upload, refunds are limited to the cases below.",
+        "Every plan starts with a 7-day free trial that includes every note type and output, so you can check that anything2note works for your content before you pay. A card is required, but nothing is charged until the trial ends, and cancelling before then means you're never charged. Because of that, and because processing costs us real money the moment you upload, refunds are limited to the cases below.",
       ],
     },
     {
       id: "monthly",
       heading: "Monthly subscriptions",
       blocks: [
-        "You can cancel any time in Settings → Plan & billing. You keep Pro until the end of the month you've paid for, and you won't be charged again. We don't give partial refunds for unused days in a monthly period.",
-      ],
-    },
-    {
-      id: "yearly",
-      heading: "Yearly subscriptions",
-      blocks: [
-        {
-          list: [
-            "Within 7 days of your first yearly payment: a full refund if you've used less than 120 media minutes and 50 document pages on Pro.",
-            "Within 7 days of an automatic yearly renewal: a full refund if you haven't used Pro since the renewal.",
-            "After that, you can cancel so the plan won't renew, and you keep Pro until the end of the year you've paid for.",
-          ],
-        },
+        "You can cancel any time in Settings → Plan & billing. You keep your plan until the end of the month you've paid for, and you won't be charged again. We don't give partial refunds for unused days in a monthly period.",
       ],
     },
     {
@@ -362,13 +349,6 @@ export const REFUNDS: LegalDoc = {
       ],
     },
     {
-      id: "app-stores",
-      heading: "App Store and Google Play purchases",
-      blocks: [
-        "Subscriptions bought inside the iOS or Android app are processed by Apple or Google, and only they can refund them. Request a refund at reportaproblem.apple.com or through Google Play's order history. Their decision is final, but we're happy to help if you get stuck.",
-      ],
-    },
-    {
       id: "how-to",
       heading: "How to request a refund",
       blocks: [
@@ -382,11 +362,10 @@ export const REFUNDS: LegalDoc = {
       blocks: [
         {
           list: [
-            "India (Razorpay): returned to the original payment method, usually within 5–7 business days. UPI refunds are often faster.",
-            "Outside India (Dodo Payments): returned to the original payment method, usually within 5–10 business days depending on your bank.",
+            "Refunds go through Dodo Payments back to the original payment method, usually within 5–10 business days depending on your bank.",
           ],
         },
-        "Refunded amounts include the taxes you paid. When a refund is issued, your plan returns to Free and your notes stay intact.",
+        "Refunded amounts include the taxes you paid. When a refund is issued, the plan ends and you can no longer add notes, but your existing notes stay intact.",
       ],
     },
     {

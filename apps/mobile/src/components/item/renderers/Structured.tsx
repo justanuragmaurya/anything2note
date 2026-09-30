@@ -6,10 +6,10 @@ import { fontFamily, palette } from "@/theme";
 type Of<K extends OutputData["type"]> = Extract<OutputData, { type: K }>;
 
 /** Inline `**bold**` and `` `code` `` from the model, rendered instead of shown as symbols. */
-export function Rich({ text, style }: { text: string; style?: TextStyle }) {
+export function Rich({ text, style, selectable }: { text: string; style?: TextStyle; selectable?: boolean }) {
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
   return (
-    <Body style={style}>
+    <Body style={style} selectable={selectable}>
       {parts.map((p, i) =>
         p.startsWith("**") && p.endsWith("**") ? (
           <Text key={i} style={{ fontFamily: fontFamily.sansMedium, color: palette.ink }}>
@@ -151,7 +151,66 @@ export function Generic({ data, output }: { data: Of<"generic">; output: OutputK
   );
 }
 
+/**
+ * The Markdown a chat answer comes back in: `#` headings, `-`/`*` and numbered lists, fenced code,
+ * `**bold**` and `` `code` ``. Anything else shows as written (maths stays plain text).
+ */
+export function Markdown({ text, color = palette.ink }: { text: string; color?: string }) {
+  const blocks: ({ kind: "code"; text: string } | { kind: "line"; text: string })[] = [];
+  let fence: string[] | null = null;
+  for (const line of text.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      if (fence) {
+        blocks.push({ kind: "code", text: fence.join("\n") });
+        fence = null;
+      } else fence = [];
+    } else if (fence) fence.push(line);
+    else blocks.push({ kind: "line", text: line });
+  }
+  // An unclosed fence (a streamed answer mid-block) still shows as code.
+  if (fence) blocks.push({ kind: "code", text: fence.join("\n") });
+
+  const body = { fontSize: 15, lineHeight: 22, color };
+  return (
+    <View style={{ gap: 6 }}>
+      {blocks.map((b, i) => {
+        if (b.kind === "code")
+          return (
+            <View key={i} style={[styles.codeBlock, { marginTop: 2 }]}>
+              <Text selectable style={[styles.code, { backgroundColor: "transparent" }]}>
+                {b.text}
+              </Text>
+            </View>
+          );
+        const line = b.text;
+        if (!line.trim()) return null;
+        const heading = /^\s*#{1,6}\s+(.*)$/.exec(line);
+        if (heading) return <Label key={i} style={{ marginTop: i ? 6 : 0 }}>{heading[1]!.replace(/\*\*/g, "")}</Label>;
+        const numbered = /^\s*(\d+)[.)]\s+(.*)$/.exec(line);
+        if (numbered)
+          return (
+            <View key={i} style={styles.listRow}>
+              <Text style={styles.listNum}>{numbered[1]}.</Text>
+              <Rich selectable text={numbered[2]!} style={{ ...body, flex: 1 }} />
+            </View>
+          );
+        const bullet = /^(\s*)[-*•]\s+(.*)$/.exec(line);
+        if (bullet)
+          return (
+            <View key={i} style={[styles.listRow, bullet[1]!.length >= 2 && { paddingLeft: 16 }]}>
+              <View style={[styles.dot, { marginTop: 8 }]} />
+              <Rich selectable text={bullet[2]!} style={{ ...body, flex: 1 }} />
+            </View>
+          );
+        return <Rich key={i} selectable text={line} style={body} />;
+      })}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  listRow: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
+  listNum: { fontFamily: fontFamily.mono, fontSize: 12, lineHeight: 22, color: palette.red600, minWidth: 16 },
   box: { borderRadius: 18, borderWidth: 1, borderColor: palette.line, padding: 14, backgroundColor: palette.card },
   between: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   bullet: { flexDirection: "row", gap: 10, marginTop: 6, alignItems: "flex-start" },

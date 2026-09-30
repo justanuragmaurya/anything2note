@@ -8,6 +8,7 @@ import { api, errorMessage } from "@/lib/api";
 import { fmtTsDate } from "@/lib/format";
 import { keys, useInvalidate, useMe } from "@/lib/queries";
 import { NestedCard, PageHeader, ProgressBar } from "../ui";
+import { CreditHistory } from "./credit-history";
 
 /* Plan & billing (plan.md §8): pick a plan, start the trial through Dodo checkout, switch plans, manage payment. */
 
@@ -264,6 +265,12 @@ export function BillingView({ returned, startPlan }: { returned: { subscriptionI
                     ? "Prices in USD. Local taxes are added at checkout. Cancel anytime."
                     : `Card required. You won't be charged until the ${TRIAL.days}-day trial ends, and you can cancel before then. The trial includes ${TRIAL.credits} credits.`}
               </p>
+            </NestedCard>
+          </div>
+
+          <div className="rise" style={{ animationDelay: "120ms" }}>
+            <NestedCard id="credits" eyebrow="History" title="Credit history" className="scroll-mt-28">
+              <CreditHistory />
             </NestedCard>
           </div>
         </div>

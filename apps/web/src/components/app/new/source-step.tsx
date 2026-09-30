@@ -1,17 +1,31 @@
 "use client";
 
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import { AlertCircle, Check, ClipboardPaste, Globe, Loader2, Mic, Pause, Play, RotateCcw, Square, Trash2, Upload, X } from "lucide-react";
-import { UPLOAD_LIMITS, SUPPORTED_UPLOADS, type SourceInput, type SourceKind } from "@a2n/shared";
+import { AlertCircle, Check, ClipboardPaste, Clock, Globe, Loader2, Mic, Pause, Play, RotateCcw, Square, Trash2, Upload, X } from "lucide-react";
+import Image from "next/image";
+import {
+  CHARS_PER_PAGE,
+  UPLOAD_LIMITS,
+  SUPPORTED_UPLOADS,
+  isYoutubeUrl,
+  youtubeIdOf,
+  youtubeThumbnailUrl,
+  youtubeWatchUrl,
+  type SourceInput,
+  type SourceKind,
+} from "@a2n/shared";
 import { SlidingTabs } from "@/components/ui/sliding-tabs";
-import { api, errorMessage, putUpload } from "@/lib/api";
-import { fmtSize, fmtTime } from "@/lib/format";
+import { FileUpload, errorMessage } from "@/lib/api";
+import { fmtDuration, fmtSize, fmtTime } from "@/lib/format";
 import { SourceIcon, YoutubeGlyph, inputCls } from "../ui";
 
 export type SourceTab = "link" | "upload" | "record" | "text" | "url";
 
-/** A source that's ready to send: `input` goes straight into `POST /api/sources`. */
-export type PickedSource = { kind: SourceKind; label: string; detail: string; input: SourceInput };
+/**
+ * A source that's ready to send: `input` goes straight into `POST /api/sources`. `credits` is what
+ * it will cost when we can tell up front (media length, pasted text); `seconds` is media length.
+ */
+export type PickedSource = { kind: SourceKind; label: string; detail: string; input: SourceInput; credits?: number; seconds?: number };
 
 type UploadKind = keyof typeof SUPPORTED_UPLOADS;
 
@@ -36,6 +50,19 @@ const EXT: Record<string, { kind: UploadKind; type: string }> = {
 };
 const TEXT_EXT = ["txt", "md", "markdown"];
 const MAX_TEXT_CHARS = 400_000;
+/** Files added in one go; each becomes its own note. */
+export const MAX_FILES = 20;
+/** Files uploading at once (each big one also sends a few parts in parallel). */
+const PARALLEL_FILES = 2;
+
+const MB = 1024 * 1024;
+const fmtLimit = (bytes: number) => (bytes >= 1024 * MB ? `${bytes / (1024 * MB)} GB` : `${bytes / MB} MB`);
+
+/** "2 hours", "90 min" */
+export const fmtHours = (s: number) => (s % 3600 === 0 ? `${s / 3600} ${s === 3600 ? "hour" : "hours"}` : `${Math.round(s / 60)} min`);
+
+const textCredits = (chars: number) => Math.max(1, Math.ceil(chars / CHARS_PER_PAGE));
+const mediaCredits = (secs: number) => Math.max(1, Math.ceil(secs / 60));
 
 type Classified = { ok: true; text: boolean; kind: SourceKind; contentType: string } | { ok: false; error: string };
 
@@ -56,48 +83,380 @@ function classify(file: File): Classified {
     return { ok: false, error: `${what} supported yet.${hint}` };
   }
   const media = kind === "audio" || kind === "video";
-  if (media && file.size > UPLOAD_LIMITS.maxMediaBytes) return { ok: false, error: `Audio and video files over ${UPLOAD_LIMITS.maxMediaBytes / 1024 / 1024} MB aren’t supported yet.` };
-  if (file.size > UPLOAD_LIMITS.maxUploadBytes) return { ok: false, error: `Files can be up to ${UPLOAD_LIMITS.maxUploadBytes / 1024 / 1024} MB.` };
+  if (media && file.size > UPLOAD_LIMITS.maxMediaBytes) return { ok: false, error: `Audio and video files can be up to ${fmtLimit(UPLOAD_LIMITS.maxMediaBytes)}.` };
+  if (!media && file.size > UPLOAD_LIMITS.maxUploadBytes) return { ok: false, error: `Documents and images can be up to ${fmtLimit(UPLOAD_LIMITS.maxUploadBytes)}.` };
   const contentType = byType ? file.type : EXT[ext]!.type;
   return { ok: true, text: false, kind, contentType };
 }
 
-type UploadState = { name: string; size: number; kind: SourceKind; progress: number; state: "uploading" | "done" | "error"; error?: string };
+/** Length of an audio/video file from its metadata, or null when the browser can't tell. */
+function probeDuration(file: File, video: boolean): Promise<number | null> {
+  return new Promise((resolve) => {
+    const el = document.createElement(video ? "video" : "audio");
+    const url = URL.createObjectURL(file);
+    const finish = (v: number | null) => {
+      clearTimeout(timer);
+      el.removeAttribute("src");
+      URL.revokeObjectURL(url);
+      resolve(v);
+    };
+    const timer = setTimeout(() => finish(null), 8000);
+    el.preload = "metadata";
+    el.onloadedmetadata = () => finish(Number.isFinite(el.duration) && el.duration > 0 ? el.duration : null);
+    el.onerror = () => finish(null);
+    el.src = url;
+  });
+}
 
-function UploadRow({ up, onRemove, onRetry }: { up: UploadState; onRemove: () => void; onRetry?: () => void }) {
+/* ─────────────────────────── Picker state ─────────────────────────── */
+
+/** One file (or the recording) on its way up. `retryable: false` = it was rejected before uploading. */
+export type FileEntry = {
+  id: string;
+  name: string;
+  size: number;
+  kind: SourceKind;
+  recording: boolean;
+  state: "checking" | "queued" | "uploading" | "done" | "error";
+  error?: string;
+  retryable?: boolean;
+  seconds?: number;
+  source?: PickedSource;
+};
+
+/** What the active tab would add: ready sources, plus uploads still going or failed. */
+export type SourceSelection = {
+  sources: PickedSource[];
+  /** Files still checking, queued or uploading */
+  pending: number;
+  failed: number;
+  /** 0–100 across the pending files, by size */
+  progress: number;
+  /** Kind of the first file or source, for the note type suggestion */
+  firstKind: SourceKind | null;
+};
+
+export type PlanLimits = { maxMediaSeconds: number; planName: string | null };
+
+let seq = 0;
+const newId = () => `f${++seq}`;
+
+/** Links pasted without a scheme ("youtu.be/…") still count. */
+const withScheme = (v: string) => (/^[a-z][a-z\d+.-]*:\/\//i.test(v) ? v : `https://${v}`);
+
+const youtubeSource = (id: string): PickedSource => ({ kind: "youtube", label: `youtu.be/${id}`, detail: "YouTube video", input: { type: "url", url: youtubeWatchUrl(id) } });
+
+function webSource(value: string): PickedSource | null {
+  try {
+    const u = new URL(value.trim());
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    const href = u.toString();
+    if (isYoutubeUrl(href)) {
+      const id = youtubeIdOf(href);
+      return id ? youtubeSource(id) : null;
+    }
+    return { kind: "web", label: u.hostname.replace(/^www\./, ""), detail: "Web page", input: { type: "url", url: href } };
+  } catch {
+    return null;
+  }
+}
+
+function textSource(value: string): PickedSource | null {
+  const body = value.trim();
+  const words = body.split(/\s+/).filter(Boolean).length;
+  if (words < 5 || body.length < 20) return null;
+  return { kind: "text", label: body.slice(0, 48), detail: `${words} words`, input: { type: "text", text: body }, credits: textCredits(body.length) };
+}
+
+/**
+ * Everything the source step picks, kept by the add flow so uploads carry on while the user
+ * chooses a note type. Only the active tab's source(s) are sent.
+ */
+export function useSourcePicker(limits: PlanLimits) {
+  const [tab, setTab] = useState<SourceTab>("link");
+  const [ytUrl, setYtUrl] = useState("");
+  const [url, setUrl] = useState("");
+  const [text, setText] = useState("");
+  const [entries, setEntries] = useState<FileEntry[]>([]);
+  const [progress, setProgress] = useState<Record<string, number>>({});
+  const jobs = useRef(new Map<string, FileUpload>());
+  const queue = useRef<string[]>([]);
+  const active = useRef(0);
+  const live = useRef<Record<string, number>>({});
+  const frame = useRef(0);
+  const limitsRef = useRef(limits);
+  useEffect(() => {
+    limitsRef.current = limits;
+  }, [limits]);
+
+  useEffect(() => {
+    const all = jobs.current;
+    return () => {
+      all.forEach((j) => j.cancel());
+      cancelAnimationFrame(frame.current);
+    };
+  }, []);
+
+  const patch = (id: string, p: Partial<FileEntry>) => setEntries((es) => es.map((e) => (e.id === id ? { ...e, ...p } : e)));
+
+  /** Progress events arrive fast; paint them at most once a frame. */
+  const onProgress = (id: string, pct: number) => {
+    live.current[id] = pct;
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      setProgress({ ...live.current });
+    });
+  };
+
+  const pump = () => {
+    while (active.current < PARALLEL_FILES && queue.current.length) {
+      const id = queue.current.shift()!;
+      const job = jobs.current.get(id);
+      if (!job || job.cancelled) continue;
+      active.current += 1;
+      patch(id, { state: "uploading", error: undefined });
+      job
+        .run()
+        .then((uploadId) => {
+          if (job.cancelled) return;
+          setEntries((es) =>
+            es.map((e) => {
+              if (e.id !== id) return e;
+              const source: PickedSource = {
+                kind: e.kind,
+                label: e.name,
+                detail: e.recording ? `Browser microphone · ${fmtTime(e.seconds ?? 0)}` : `${fmtSize(e.size)}${e.seconds ? ` · ${fmtDuration(e.seconds)}` : ""}`,
+                input: { type: "upload", uploadId, ...(e.recording && { recording: true }) },
+                ...(e.seconds && { seconds: e.seconds, credits: mediaCredits(e.seconds) }),
+              };
+              return { ...e, state: "done", source };
+            }),
+          );
+        })
+        .catch((err: unknown) => {
+          if (!job.cancelled) patch(id, { state: "error", error: errorMessage(err), retryable: true });
+        })
+        .finally(() => {
+          active.current -= 1;
+          pump();
+        });
+    }
+  };
+
+  const enqueue = (id: string, file: File, contentType: string, front = false) => {
+    const job = new FileUpload(file, contentType, (pct) => onProgress(id, pct));
+    jobs.current.set(id, job);
+    live.current[id] = 0;
+    if (front) queue.current.unshift(id);
+    else queue.current.push(id);
+    pump();
+  };
+
+  const addOne = async (file: File) => {
+    const id = newId();
+    const c = classify(file);
+    const base = { id, name: file.name, size: file.size, recording: false };
+    if (!c.ok) {
+      setEntries((es) => [...es, { ...base, kind: "text", state: "error", error: c.error, retryable: false }]);
+      return;
+    }
+    if (c.text) {
+      const body = (await file.text()).trim();
+      const error = body.length < 20 ? "That file is nearly empty. Paste at least a few sentences." : body.length > MAX_TEXT_CHARS ? "That text file is too long. Paste a shorter section instead." : null;
+      if (error) {
+        setEntries((es) => [...es, { ...base, kind: "text", state: "error", error, retryable: false }]);
+        return;
+      }
+      const source: PickedSource = {
+        kind: "text",
+        label: file.name,
+        detail: `${body.split(/\s+/).length} words`,
+        input: { type: "text", text: body, title: file.name.replace(/\.[^.]+$/, "") },
+        credits: textCredits(body.length),
+      };
+      setEntries((es) => [...es, { ...base, kind: "text", state: "done", source }]);
+      return;
+    }
+    const media = c.kind === "audio" || c.kind === "video";
+    setEntries((es) => [...es, { ...base, kind: c.kind, state: media ? "checking" : "queued" }]);
+    if (media) {
+      const seconds = await probeDuration(file, c.kind === "video");
+      const { maxMediaSeconds, planName } = limitsRef.current;
+      if (seconds && seconds > maxMediaSeconds) {
+        const what = c.kind === "video" ? "video" : "recording";
+        patch(id, {
+          state: "error",
+          seconds,
+          retryable: false,
+          error: `This ${what} is ${fmtDuration(seconds)}. ${planName ? `Your ${planName} plan takes` : "Plans take"} audio and video up to ${fmtHours(maxMediaSeconds)}. Trim it, or upload it in parts.`,
+        });
+        return;
+      }
+      patch(id, { state: "queued", ...(seconds && { seconds }) });
+    }
+    enqueue(id, file, c.contentType);
+  };
+
+  const addFiles = (list: FileList | File[] | null) => {
+    const files = Array.from(list ?? []);
+    if (!files.length) return;
+    setTab("upload");
+    const room = MAX_FILES - entries.filter((e) => !e.recording).length;
+    files.slice(0, Math.max(0, room)).forEach((f) => void addOne(f));
+    if (files.length > room) {
+      setEntries((es) => [
+        ...es,
+        { id: newId(), name: `${files.length - Math.max(0, room)} more ${files.length - room === 1 ? "file" : "files"}`, size: 0, kind: "text", recording: false, state: "error", retryable: false, error: `You can add up to ${MAX_FILES} files at a time. Add the rest once these are in.` },
+      ]);
+    }
+  };
+
+  const remove = (id: string) => {
+    jobs.current.get(id)?.cancel();
+    jobs.current.delete(id);
+    queue.current = queue.current.filter((q) => q !== id);
+    delete live.current[id];
+    setEntries((es) => es.filter((e) => e.id !== id));
+  };
+
+  const retry = (id: string) => {
+    if (!jobs.current.has(id)) return;
+    patch(id, { state: "queued", error: undefined });
+    queue.current.push(id);
+    pump();
+  };
+
+  const clearFiles = () => entries.filter((e) => !e.recording).forEach((e) => remove(e.id));
+
+  const addRecording = (file: File, seconds: number) => {
+    entries.filter((e) => e.recording).forEach((e) => remove(e.id));
+    const id = newId();
+    setEntries((es) => [...es, { id, name: file.name, size: file.size, kind: "recording", recording: true, state: "queued", seconds }]);
+    enqueue(id, file, file.type, true);
+  };
+
+  const clearRecording = () => entries.filter((e) => e.recording).forEach((e) => remove(e.id));
+
+  // What the active tab adds
+  const files = entries.filter((e) => !e.recording);
+  const recording = entries.find((e) => e.recording) ?? null;
+  const tabEntries = tab === "upload" ? files : tab === "record" && recording ? [recording] : [];
+  const ytId = youtubeIdOf(withScheme(ytUrl.trim()));
+  const single = tab === "link" ? (ytId ? youtubeSource(ytId) : null) : tab === "url" ? webSource(url) : tab === "text" ? textSource(text) : null;
+  const pendingEntries = tabEntries.filter((e) => e.state === "checking" || e.state === "queued" || e.state === "uploading");
+  const pendingBytes = pendingEntries.reduce((n, e) => n + e.size, 0);
+  const selection: SourceSelection = {
+    sources: single ? [single] : tabEntries.flatMap((e) => (e.state === "done" && e.source ? [e.source] : [])),
+    pending: pendingEntries.length,
+    failed: tabEntries.filter((e) => e.state === "error").length,
+    progress: pendingBytes ? pendingEntries.reduce((n, e) => n + (progress[e.id] ?? 0) * e.size, 0) / pendingBytes : 0,
+    firstKind: single?.kind ?? tabEntries.find((e) => e.state !== "error")?.kind ?? null,
+  };
+
+  return {
+    tab,
+    setTab,
+    ytUrl,
+    setYtUrl,
+    url,
+    setUrl,
+    text,
+    setText,
+    files,
+    recording,
+    progress,
+    addFiles,
+    remove,
+    retry,
+    clearFiles,
+    addRecording,
+    clearRecording,
+    selection,
+  };
+}
+
+export type SourcePicker = ReturnType<typeof useSourcePicker>;
+
+/* ─────────────────────────── Upload rows ─────────────────────────── */
+
+function UploadRow({ up, pct, onRemove, onRetry }: { up: FileEntry; pct: number; onRemove: () => void; onRetry: () => void }) {
+  const failed = up.state === "error";
+  const busy = up.state === "checking" || up.state === "queued" || up.state === "uploading";
+  const shown = up.state === "done" ? 100 : up.state === "uploading" ? pct : 0;
   return (
     <div className="rise flex items-center gap-3 rounded-2xl border border-line bg-card p-3">
-      <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${up.state === "error" ? "bg-red-50 text-red-600" : "bg-panel text-ink-soft"}`}>
-        {up.state === "error" ? <AlertCircle className="size-4" /> : <SourceIcon kind={up.kind} />}
+      <span className={`grid size-9 shrink-0 place-items-center rounded-xl ${failed ? "bg-red-50 text-red-600" : "bg-panel text-ink-soft"}`}>
+        {failed ? <AlertCircle className="size-4" /> : <SourceIcon kind={up.kind} />}
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
           <p className="truncate text-sm">{up.name}</p>
           <span className="shrink-0 font-mono text-[10px] text-muted">
-            {up.state === "uploading" ? `${Math.floor(up.progress)}%` : up.state === "done" ? fmtSize(up.size) : "failed"}
+            {up.state === "uploading"
+              ? `${Math.floor(pct)}%`
+              : up.state === "checking"
+                ? "checking"
+                : up.state === "queued"
+                  ? "waiting"
+                  : up.state === "done"
+                    ? [up.size ? fmtSize(up.size) : "", up.seconds ? fmtDuration(up.seconds) : ""].filter(Boolean).join(" · ")
+                    : up.retryable
+                      ? "failed"
+                      : "not added"}
           </span>
         </div>
-        {up.state === "error" ? (
+        {failed ? (
           <p className="mt-1 text-[12px] text-red-700">{up.error}</p>
         ) : (
-          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-panel" role="progressbar" aria-valuenow={Math.floor(up.progress)} aria-valuemin={0} aria-valuemax={100} aria-label={`Uploading ${up.name}`}>
-            <div className={`h-full rounded-full transition-[width] duration-200 ${up.state === "uploading" ? "progress-shimmer" : "bg-green-700/60"}`} style={{ width: `${up.progress}%` }} />
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-panel" role="progressbar" aria-valuenow={Math.floor(shown)} aria-valuemin={0} aria-valuemax={100} aria-label={`Uploading ${up.name}`}>
+            <div className={`h-full rounded-full transition-[width] duration-200 ${busy ? "progress-shimmer" : "bg-green-700/60"}`} style={{ width: `${Math.max(busy ? 2 : 0, shown)}%` }} />
           </div>
         )}
       </div>
-      {up.state === "error" && onRetry && (
+      {failed && up.retryable && (
         <button type="button" onClick={onRetry} className="btn btn-ghost btn-sm !min-h-[30px] shrink-0 !px-3 !py-1 text-[12px]">
           <RotateCcw className="size-3" /> Retry
         </button>
       )}
       <button
         type="button"
-        aria-label={up.state === "uploading" ? `Cancel upload of ${up.name}` : `Remove ${up.name}`}
+        aria-label={busy ? `Cancel upload of ${up.name}` : `Remove ${up.name}`}
         onClick={onRemove}
         className="grid size-7 shrink-0 place-items-center rounded-full text-muted transition-colors hover:bg-panel hover:text-ink"
       >
         <X className="size-3.5" />
       </button>
+    </div>
+  );
+}
+
+function FileList({ picker }: { picker: SourcePicker }) {
+  const { files, progress, selection } = picker;
+  if (!files.length) return null;
+  const done = files.filter((f) => f.state === "done").length;
+  return (
+    <div className="mt-4">
+      {files.length > 1 && (
+        <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 px-1">
+          <p className="font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
+            {files.length} files · {done} ready
+            {selection.pending > 0 && ` · uploading ${Math.floor(selection.progress)}%`}
+            {selection.failed > 0 && <span className="text-red-600"> · {selection.failed} not added</span>}
+          </p>
+          <button type="button" onClick={picker.clearFiles} className="text-[12px] text-muted underline-offset-4 hover:text-ink hover:underline">
+            {selection.pending > 0 ? "Cancel all" : "Remove all"}
+          </button>
+        </div>
+      )}
+      <ul className="space-y-2">
+        {files.map((f) => (
+          <li key={f.id}>
+            <UploadRow up={f} pct={progress[f.id] ?? 0} onRemove={() => picker.remove(f.id)} onRetry={() => picker.retry(f.id)} />
+          </li>
+        ))}
+      </ul>
+      {files.length > 1 && <p className="mt-2.5 px-1 text-[12px] text-muted">Each file becomes its own note, with the same note type, outputs and language.</p>}
     </div>
   );
 }
@@ -121,14 +480,29 @@ function teardown(l: Live) {
   l.ctx = null;
 }
 
-/** Browser mic via MediaRecorder; the bars are the live input level from an AnalyserNode. */
-function Recorder({ onRecorded, onClear }: { onRecorded: (file: File, secs: number) => void; onClear: () => void }) {
+/**
+ * Browser mic via MediaRecorder; the bars are the live input level from an AnalyserNode. Stops by
+ * itself at the plan's longest recording, and warns once it's longer than the credits left.
+ */
+function Recorder({
+  onRecorded,
+  onClear,
+  limits,
+  creditsLeft,
+}: {
+  onRecorded: (file: File, secs: number) => void;
+  onClear: () => void;
+  limits: PlanLimits;
+  creditsLeft: number | null;
+}) {
   const [state, setState] = useState<RecState>("idle");
   const [secs, setSecs] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [hitLimit, setHitLimit] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const barsRef = useRef<HTMLDivElement>(null);
   const live$ = useRef<Live>({ rec: null, stream: null, ctx: null, raf: 0, acc: 0, since: 0, levels: Array.from({ length: BARS }, () => 0) });
+  const maxSecs = limits.maxMediaSeconds;
 
   useEffect(() => {
     const l = live$.current;
@@ -151,10 +525,13 @@ function Recorder({ onRecorded, onClear }: { onRecorded: (file: File, secs: numb
     const id = setInterval(() => {
       const s = elapsedOf(l);
       setSecs(Math.floor(s));
-      if (s >= UPLOAD_LIMITS.maxRecordingSeconds) l.rec?.stop();
+      if (s >= maxSecs && l.rec?.state === "recording") {
+        setHitLimit(true);
+        l.rec.stop();
+      }
     }, 250);
     return () => clearInterval(id);
-  }, [state]);
+  }, [state, maxSecs]);
 
   const paintBars = () => {
     const el = barsRef.current;
@@ -167,6 +544,7 @@ function Recorder({ onRecorded, onClear }: { onRecorded: (file: File, secs: numb
 
   const start = async () => {
     setError(null);
+    setHitLimit(false);
     onClear();
     if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setError("This browser can’t record audio. Try Chrome, Edge, Firefox or Safari.");
@@ -187,7 +565,7 @@ function Recorder({ onRecorded, onClear }: { onRecorded: (file: File, secs: numb
     rec.ondataavailable = (e) => e.data.size > 0 && chunks.push(e.data);
     rec.onstop = () => {
       const type = (rec.mimeType || "audio/webm").split(";")[0]!;
-      const total = elapsedOf(l);
+      const total = Math.min(elapsedOf(l), maxSecs);
       l.acc = total;
       l.since = 0;
       teardown(l);
@@ -195,7 +573,7 @@ function Recorder({ onRecorded, onClear }: { onRecorded: (file: File, secs: numb
       setState("stopped");
       const blob = new Blob(chunks, { type });
       if (blob.size > UPLOAD_LIMITS.maxMediaBytes) {
-        setError(`That recording is over ${UPLOAD_LIMITS.maxMediaBytes / 1024 / 1024} MB, which isn’t supported yet. Record a shorter part.`);
+        setError(`That recording is over ${fmtLimit(UPLOAD_LIMITS.maxMediaBytes)}, which is more than we can take. Record a shorter part.`);
         return;
       }
       setPreviewUrl(URL.createObjectURL(blob));
@@ -254,6 +632,7 @@ function Recorder({ onRecorded, onClear }: { onRecorded: (file: File, secs: numb
     setState("idle");
     setSecs(0);
     setError(null);
+    setHitLimit(false);
     setPreviewUrl(null);
     live$.current.levels = live$.current.levels.map(() => 0);
     paintBars();
@@ -261,6 +640,9 @@ function Recorder({ onRecorded, onClear }: { onRecorded: (file: File, secs: numb
   };
 
   const live = state === "recording" || state === "paused";
+  const left = maxSecs - secs;
+  const overCredits = creditsLeft !== null && secs > 0 && mediaCredits(secs) > creditsLeft;
+  const limitText = `up to ${fmtHours(maxSecs)}${limits.planName ? ` on ${limits.planName}` : ""}`;
 
   return (
     <div className="flex flex-col items-center">
@@ -291,14 +673,15 @@ function Recorder({ onRecorded, onClear }: { onRecorded: (file: File, secs: numb
       <p className="mt-5 font-mono text-[32px] tracking-[-0.02em] text-ink tabular-nums" aria-live="polite">
         {fmtTime(secs).padStart(5, "0")}
       </p>
-      <p className="mt-1 flex items-center gap-1.5 font-mono text-[10px] tracking-[0.14em] uppercase">
+      <p className="mt-1 flex items-center gap-1.5 text-center font-mono text-[10px] tracking-[0.14em] uppercase">
         {state === "recording" && (
           <>
             <span className="pulse-dot size-1.5 rounded-full bg-red-500" /> <span className="text-red-600">Recording</span>
+            {left <= 300 && <span className="text-muted">· stops in {fmtTime(Math.max(0, left))}</span>}
           </>
         )}
         {state === "paused" && <span className="text-muted">Paused</span>}
-        {state === "idle" && <span className="text-muted">Tap to start · up to {UPLOAD_LIMITS.maxRecordingSeconds / 60} min</span>}
+        {state === "idle" && <span className="text-muted">Tap to start · {limitText}</span>}
         {state === "stopped" && !error && (
           <span className="flex items-center gap-1 text-green-800">
             <Check className="size-3" /> Recorded
@@ -317,6 +700,16 @@ function Recorder({ onRecorded, onClear }: { onRecorded: (file: File, secs: numb
         ))}
       </div>
 
+      {hitLimit && !error && (
+        <p className="mt-4 flex items-start gap-2 text-[13px] text-ink-soft" role="status">
+          <Clock className="mt-0.5 size-4 shrink-0 text-red-500" /> Stopped at {fmtHours(maxSecs)}, the longest recording {limits.planName ? `your ${limits.planName} plan takes` : "your plan takes"}.
+        </p>
+      )}
+      {overCredits && (
+        <p className="mt-4 flex max-w-[460px] items-start gap-2 text-[13px] text-red-700" role="status">
+          <AlertCircle className="mt-0.5 size-4 shrink-0" /> This recording needs {mediaCredits(secs)} credits and you have {creditsLeft} left. Only record what you need, or upgrade for more.
+        </p>
+      )}
       {error && (
         <p className="mt-4 flex items-start gap-2 text-[13px] text-red-700" role="alert">
           <AlertCircle className="mt-0.5 size-4 shrink-0" /> {error}
@@ -347,101 +740,53 @@ function Recorder({ onRecorded, onClear }: { onRecorded: (file: File, secs: numb
   );
 }
 
-/* ─────────────────────────── Step ─────────────────────────── */
+/* ─────────────────────────── YouTube ─────────────────────────── */
 
-const isYoutube = (host: string) => /(^|\.)(youtube\.com|youtu\.be)$/i.test(host);
-
-function initialTab(source: PickedSource | null): SourceTab {
-  if (!source) return "upload";
-  if (source.kind === "recording") return "record";
-  if (source.kind === "web") return "url";
-  if (source.input.type === "text" && !source.input.title) return "text";
-  return "upload";
+/** Why a YouTube tab entry can't be sent, or null when it's a video (or still empty). */
+function youtubeError(value: string): string | null {
+  const v = withScheme(value.trim());
+  if (!value.trim() || youtubeIdOf(v)) return null;
+  if (isYoutubeUrl(v)) return "That’s a channel, playlist or home page link. Open a single video and copy its link.";
+  let host = "";
+  try {
+    host = new URL(v).hostname;
+  } catch {
+    host = "";
+  }
+  return host.includes(".") ? "That isn’t a YouTube link. Use the Web page tab for other sites." : "That doesn’t look like a YouTube link yet. It should look like youtube.com/watch?v=… or youtu.be/…";
 }
 
-export function SourceStep({ source, onSource }: { source: PickedSource | null; onSource: (s: PickedSource | null) => void }) {
-  const [tab, setTab] = useState<SourceTab>(() => initialTab(source));
-  const [url, setUrl] = useState(source?.kind === "web" && source.input.type === "url" ? source.input.url : "");
-  const [text, setText] = useState(source?.input.type === "text" && !source.input.title ? source.input.text : "");
-  const [up, setUp] = useState<UploadState | null>(null);
-  const [fileError, setFileError] = useState<string | null>(null);
+/** The video's thumbnail and what happens next; the title and channel come from the API. */
+function YoutubePreview({ id, maxSeconds }: { id: string; maxSeconds: number }) {
+  return (
+    <div className="rise mt-4 flex flex-col gap-4 rounded-[22px] border border-line bg-card p-3 sm:flex-row sm:items-center">
+      <div className="relative aspect-video w-full shrink-0 overflow-hidden rounded-2xl bg-panel sm:w-44">
+        <Image src={youtubeThumbnailUrl(id)} alt="Video thumbnail" fill sizes="(min-width: 640px) 176px, 100vw" className="object-cover" />
+      </div>
+      <div className="min-w-0 px-1 pb-1 sm:p-0">
+        <p className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
+          <YoutubeGlyph className="size-3.5 text-red-500" /> youtu.be/{id}
+        </p>
+        <p className="mt-2 text-[13px] text-ink-soft">We’ll read the video’s captions, or transcribe it if it has none, when you start.</p>
+        <p className="mt-1 text-[12px] text-muted">Uses 1 credit per minute of video, up to {fmtHours(maxSeconds)} long. Private, members-only and live videos won’t work.</p>
+      </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── Step ─────────────────────────── */
+
+export function SourceStep({ picker, limits, creditsLeft }: { picker: SourcePicker; limits: PlanLimits; creditsLeft: number | null }) {
+  const { tab, setTab, ytUrl, url, text, files, recording, progress, selection } = picker;
   const [drag, setDrag] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const depth = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
-  const lastUpload = useRef<{ file: File; kind: SourceKind; contentType: string; recording: boolean } | null>(null);
-
-  useEffect(() => () => abortRef.current?.abort(), []);
-
-  const upload = async (file: File, kind: SourceKind, contentType: string, recording: boolean) => {
-    abortRef.current?.abort();
-    const ac = new AbortController();
-    abortRef.current = ac;
-    lastUpload.current = { file, kind, contentType, recording };
-    onSource(null);
-    setUp({ name: file.name, size: file.size, kind, progress: 0, state: "uploading" });
-    try {
-      const target = await api.createUpload({ filename: file.name, contentType, size: file.size });
-      if (ac.signal.aborted) return;
-      await putUpload(target, file, (p) => setUp((u) => (u ? { ...u, progress: p } : u)), ac.signal);
-      if (ac.signal.aborted) return;
-      setUp((u) => (u ? { ...u, progress: 100, state: "done" } : u));
-      onSource({
-        kind,
-        label: file.name,
-        detail: recording ? "Browser microphone" : fmtSize(file.size),
-        input: { type: "upload", uploadId: target.uploadId, ...(recording && { recording: true }) },
-      });
-    } catch (e) {
-      if (ac.signal.aborted) return;
-      setUp((u) => (u ? { ...u, state: "error", error: errorMessage(e) } : u));
-    }
-  };
-
-  const retryUpload = () => {
-    const last = lastUpload.current;
-    if (last) void upload(last.file, last.kind, last.contentType, last.recording);
-  };
-
-  const removeUpload = () => {
-    abortRef.current?.abort();
-    setUp(null);
-    onSource(null);
-  };
-
-  const addFile = async (list: FileList | null) => {
-    const file = list?.[0];
-    if (!file) return;
-    setFileError(null);
-    const c = classify(file);
-    if (!c.ok) {
-      setFileError(c.error);
-      return;
-    }
-    if (c.text) {
-      removeUpload();
-      const body = (await file.text()).trim();
-      if (body.length < 20) {
-        setFileError("That file is nearly empty. Paste at least a few sentences.");
-        return;
-      }
-      if (body.length > MAX_TEXT_CHARS) {
-        setFileError("That text file is too long. Paste a shorter section instead.");
-        return;
-      }
-      setUp({ name: file.name, size: file.size, kind: "text", progress: 100, state: "done" });
-      onSource({ kind: "text", label: file.name, detail: `${body.split(/\s+/).length} words`, input: { type: "text", text: body, title: file.name.replace(/\.[^.]+$/, "") } });
-      return;
-    }
-    void upload(file, c.kind, c.contentType, false);
-  };
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     depth.current = 0;
     setDrag(false);
-    setTab("upload");
-    void addFile(e.dataTransfer.files);
+    picker.addFiles(e.dataTransfer.files);
   };
 
   const dragHandlers = {
@@ -465,9 +810,13 @@ export function SourceStep({ source, onSource }: { source: PickedSource | null; 
   } catch {
     urlHost = "";
   }
-  const urlIsYoutube = !!urlHost && isYoutube(urlHost);
-  const recordingUpload = up && up.kind === "recording";
-  const fileUpload = up && up.kind !== "recording";
+  // A YouTube link in the web page tab goes up as a video too; only non-video YouTube links are stopped.
+  const urlIsYoutube = !!urlHost && isYoutubeUrl(url);
+  const urlYoutubeId = urlIsYoutube ? youtubeIdOf(url) : null;
+  const ytId = youtubeIdOf(withScheme(ytUrl.trim()));
+  const ytError = youtubeError(ytUrl);
+  const source = selection.sources[0] ?? null;
+  const otherFiles = tab !== "upload" && files.some((f) => f.state !== "error");
 
   return (
     <div {...dragHandlers}>
@@ -479,13 +828,8 @@ export function SourceStep({ source, onSource }: { source: PickedSource | null; 
           items={[
             {
               value: "link",
-              label: (
-                <>
-                  YouTube <span className="font-mono text-[9px] tracking-[0.1em] uppercase opacity-80">soon</span>
-                </>
-              ),
+              label: "YouTube",
               icon: <YoutubeGlyph className="size-4" />,
-              disabled: true,
             },
             { value: "upload", label: "Upload", icon: <Upload className="size-4" /> },
             { value: "record", label: "Record", icon: <Mic className="size-4" /> },
@@ -496,6 +840,33 @@ export function SourceStep({ source, onSource }: { source: PickedSource | null; 
       </div>
 
       <div key={tab} className="rise mt-6">
+        {tab === "link" && (
+          <div>
+            <label htmlFor="youtube" className="eyebrow text-[10px]">
+              YouTube video link
+            </label>
+            <div className="relative mt-2">
+              <YoutubeGlyph className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted" />
+              <input
+                id="youtube"
+                value={ytUrl}
+                inputMode="url"
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(e) => picker.setYtUrl(e.target.value)}
+                placeholder="https://www.youtube.com/watch?v=…"
+                className={`${inputCls} !rounded-full !py-3.5 pl-11 text-[15px]`}
+              />
+            </div>
+            {ytError && (
+              <p className="mt-3 flex items-start gap-2 text-[13px] text-red-700" role="alert">
+                <AlertCircle className="mt-0.5 size-4 shrink-0" /> {ytError}
+              </p>
+            )}
+            {ytId && <YoutubePreview id={ytId} maxSeconds={limits.maxMediaSeconds} />}
+          </div>
+        )}
+
         {tab === "upload" && (
           <div>
             <button
@@ -515,12 +886,13 @@ export function SourceStep({ source, onSource }: { source: PickedSource | null; 
                   </>
                 ) : (
                   <>
-                    Drag a file here, or <span className="text-red-600 underline decoration-red-300 underline-offset-4">browse</span>
+                    Drag files here, or <span className="text-red-600 underline decoration-red-300 underline-offset-4">browse</span>
                   </>
                 )}
               </p>
-              <p className="mt-1.5 max-w-[52ch] text-[13px] text-muted">
-                Audio and video up to {UPLOAD_LIMITS.maxMediaBytes / 1024 / 1024} MB. PDF, Word, PowerPoint, images and text up to {UPLOAD_LIMITS.maxUploadBytes / 1024 / 1024} MB. Scanned PDFs and HEIC photos aren’t supported yet.
+              <p className="mt-1.5 max-w-[54ch] text-[13px] text-muted">
+                Audio and video up to {fmtLimit(UPLOAD_LIMITS.maxMediaBytes)} and {fmtHours(limits.maxMediaSeconds)} long. PDF, Word, PowerPoint, images and text up to {fmtLimit(UPLOAD_LIMITS.maxUploadBytes)}. Add up to{" "}
+                {MAX_FILES} at once; each becomes its own note. Scanned PDFs (no text layer) and HEIC photos aren’t supported yet.
               </p>
               <span className="mt-4 flex flex-wrap justify-center gap-1.5 font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
                 {["mp3", "m4a", "mp4", "pdf", "docx", "pptx", "png", "txt"].map((x) => (
@@ -533,36 +905,25 @@ export function SourceStep({ source, onSource }: { source: PickedSource | null; 
             <input
               ref={fileInput}
               type="file"
+              multiple
               className="sr-only"
               tabIndex={-1}
               aria-hidden
               onChange={(e) => {
-                void addFile(e.target.files);
+                picker.addFiles(e.target.files);
                 e.target.value = "";
               }}
             />
-            {fileError && (
-              <p className="mt-4 flex items-start gap-2 text-[13px] text-red-700" role="alert">
-                <AlertCircle className="mt-0.5 size-4 shrink-0" /> {fileError}
-              </p>
-            )}
-            {fileUpload && (
-              <div className="mt-4">
-                <UploadRow up={up} onRemove={removeUpload} onRetry={retryUpload} />
-              </div>
-            )}
+            <FileList picker={picker} />
           </div>
         )}
 
         {tab === "record" && (
           <div>
-            <Recorder
-              onClear={removeUpload}
-              onRecorded={(file) => void upload(file, "recording", file.type, true)}
-            />
-            {recordingUpload && (
+            <Recorder onClear={picker.clearRecording} onRecorded={picker.addRecording} limits={limits} creditsLeft={creditsLeft} />
+            {recording && (
               <div className="mx-auto mt-5 max-w-[460px]">
-                <UploadRow up={up} onRemove={removeUpload} onRetry={retryUpload} />
+                <UploadRow up={recording} pct={progress[recording.id] ?? 0} onRemove={picker.clearRecording} onRetry={() => picker.retry(recording.id)} />
               </div>
             )}
           </div>
@@ -577,13 +938,7 @@ export function SourceStep({ source, onSource }: { source: PickedSource | null; 
               id="paste"
               value={text}
               maxLength={MAX_TEXT_CHARS}
-              onChange={(e) => {
-                const v = e.target.value;
-                setText(v);
-                const body = v.trim();
-                const words = body.split(/\s+/).filter(Boolean).length;
-                onSource(words >= 5 && body.length >= 20 ? { kind: "text", label: body.slice(0, 48), detail: `${words} words`, input: { type: "text", text: body } } : null);
-              }}
+              onChange={(e) => picker.setText(e.target.value)}
               rows={9}
               placeholder="Paste lecture notes, an article, a transcript…"
               className={`${inputCls} mt-2 resize-y leading-relaxed`}
@@ -602,32 +957,18 @@ export function SourceStep({ source, onSource }: { source: PickedSource | null; 
               <input
                 id="url"
                 value={url}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setUrl(v);
-                  let host = "";
-                  let href = "";
-                  try {
-                    const u = new URL(v.trim());
-                    if (u.protocol === "http:" || u.protocol === "https:") {
-                      host = u.hostname;
-                      href = u.toString();
-                    }
-                  } catch {
-                    host = "";
-                  }
-                  onSource(host && !isYoutube(host) ? { kind: "web", label: host.replace(/^www\./, ""), detail: "Web page", input: { type: "url", url: href } } : null);
-                }}
+                onChange={(e) => picker.setUrl(e.target.value)}
                 placeholder="https://…"
                 className={`${inputCls} !rounded-full !py-3.5 pl-11 text-[15px]`}
               />
             </div>
             {url.trim() && !urlHost && <p className="mt-3 text-[13px] text-red-600">That doesn’t look like a web address yet. Start it with https://</p>}
-            {urlIsYoutube && (
+            {urlIsYoutube && !urlYoutubeId && (
               <p className="mt-3 flex items-start gap-2 text-[13px] text-red-700" role="alert">
-                <AlertCircle className="mt-0.5 size-4 shrink-0" /> YouTube links aren’t supported yet. It’s coming soon; for now, upload the audio or paste the transcript.
+                <AlertCircle className="mt-0.5 size-4 shrink-0" /> That’s a YouTube channel, playlist or home page link. Open a single video and copy its link.
               </p>
             )}
+            {urlYoutubeId && source?.kind === "youtube" && <YoutubePreview id={urlYoutubeId} maxSeconds={limits.maxMediaSeconds} />}
             {source?.kind === "web" && (
               <div className="rise mt-4 rounded-[22px] border border-line bg-card p-4">
                 <p className="font-mono text-[10px] tracking-[0.1em] text-muted uppercase">{source.label}</p>
@@ -639,15 +980,16 @@ export function SourceStep({ source, onSource }: { source: PickedSource | null; 
         )}
       </div>
 
-      {source && tab !== "url" && (
+      {source && (tab === "text" || (tab === "upload" && files.length === 1) || tab === "record") && (
         <p className="rise mt-5 flex items-center gap-2 text-[13px] text-ink-soft">
-          <Check className="size-4 text-green-700" /> <span className="truncate">{source.label}</span>
-          <span className="font-mono text-[10px] text-muted">{source.detail}</span>
+          <Check className="size-4 shrink-0 text-green-700" /> <span className="truncate">{source.label}</span>
+          <span className="shrink-0 font-mono text-[10px] text-muted">{source.detail}</span>
         </p>
       )}
-      {up?.state === "uploading" && tab !== "upload" && tab !== "record" && (
-        <p className="mt-3 flex items-center gap-2 text-[12px] text-muted">
-          <Loader2 className="spin size-3.5" /> Still uploading {up.name}…
+      {otherFiles && (
+        <p className="mt-4 flex items-center gap-2 text-[12px] text-muted">
+          {files.some((f) => f.state === "uploading" || f.state === "queued") && <Loader2 className="spin size-3.5 shrink-0" />}
+          Your {files.length === 1 ? "file stays" : `${files.length} files stay`} on the Upload tab. Only this tab’s source is added.
         </p>
       )}
     </div>

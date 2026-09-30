@@ -33,6 +33,33 @@
       "class_name": "ProcessSource"
     }
   ],
+  // yt-dlp + ffmpeg for YouTube (apps/processor). Needs Docker running for `wrangler dev` and deploys.
+  "containers": [
+    {
+      "class_name": "Processor",
+      "image": "../processor/Dockerfile",
+      "instance_type": "basic",
+      "max_instances": 10
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "PROCESSOR", "class_name": "Processor" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Processor"] }],
+  // Per-minute limits (lib/ratelimit.ts). Counted per Cloudflare location, so they stop floods and
+  // scripts, not a determined attacker; namespace ids only need to be unique in the account.
+  "ratelimits": [
+    // Sign-in POSTs per IP (a campus NAT can share one IP, so it's generous)
+    { "name": "RL_AUTH_IP", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
+    // Sign-in codes sent to one email address
+    { "name": "RL_OTP_EMAIL", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } },
+    // Per user
+    { "name": "RL_SOURCES", "namespace_id": "1003", "simple": { "limit": 20, "period": 60 } },
+    { "name": "RL_UPLOADS", "namespace_id": "1004", "simple": { "limit": 30, "period": 60 } },
+    { "name": "RL_CHAT", "namespace_id": "1005", "simple": { "limit": 20, "period": 60 } }
+  ],
+  // Morning reminder emails at 07:30 IST (lib/notify.ts REMINDER_CRON).
+  "triggers": { "crons": ["0 2 * * *"] },
   // Non-secret config. Secrets (API keys, auth secret, R2 S3 keys) live in
   // .dev.vars locally and `wrangler secret put` when deployed.
   "vars": {

@@ -12,7 +12,8 @@ import { paragraphs, type ExtractedContent } from "./content";
 
 /*
  * Turns a source into ExtractedContent (plan §5.2 step 2–3). Everything here runs inside the
- * Worker; YouTube and large media need the separate processor service, which isn't built yet.
+ * Worker. YouTube runs as several workflow steps against the processor container instead
+ * (pipeline/youtube.ts), so it isn't handled here.
  */
 
 export type ExtractInput = { kind: SourceKind; sourceRef: string | null; mime?: string; filename?: string };
@@ -45,7 +46,7 @@ export async function extract(input: ExtractInput): Promise<ExtractedContent> {
     case "recording":
       return transcribe(await readObject(input.sourceRef!), input.filename ?? "audio", input.mime ?? "audio/mpeg");
     case "youtube":
-      throw userError("YouTube links aren't supported yet.");
+      throw new Error("YouTube sources are extracted by pipeline/youtube.ts");
   }
 }
 
@@ -176,7 +177,8 @@ function base64(bytes: Uint8Array): string {
 
 type WhisperResponse = { text: string; language?: string; duration?: number; segments?: { start: number; text: string }[] };
 
-async function transcribe(buf: ArrayBuffer, filename: string, mime: string): Promise<ExtractedContent> {
+/** One Whisper request; segment times are shifted by `offsetSec` (for chunks of a longer recording). */
+export async function whisper(buf: ArrayBuffer, filename: string, mime: string, offsetSec = 0) {
   const form = new FormData();
   form.append("file", new File([buf], filename, { type: mime }));
   form.append("model", env.STT_MODEL);
@@ -190,9 +192,16 @@ async function transcribe(buf: ArrayBuffer, filename: string, mime: string): Pro
   if (res.status === 400 || res.status === 413) throw userError("We couldn't transcribe that file. Check it has an audio track.");
   if (!res.ok) throw new Error(`Transcription ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const w = (await res.json()) as WhisperResponse;
-  const segments: ContentSegment[] = (w.segments ?? [])
-    .map((s, i) => ({ id: `t${i + 1}`, anchor: { kind: "time" as const, at: Math.floor(s.start) }, text: s.text.trim() }))
-    .filter((s) => s.text);
+  return {
+    lines: (w.segments ?? []).map((s) => ({ at: Math.floor(offsetSec + s.start), text: s.text.trim() })).filter((s) => s.text),
+    language: w.language,
+    durationSec: w.duration ?? 0,
+  };
+}
+
+async function transcribe(buf: ArrayBuffer, filename: string, mime: string): Promise<ExtractedContent> {
+  const w = await whisper(buf, filename, mime);
+  const segments: ContentSegment[] = w.lines.map((l, i) => ({ id: `t${i + 1}`, anchor: { kind: "time", at: l.at }, text: l.text }));
   if (!segments.length) throw userError("We couldn't hear any speech in that recording.");
-  return { kind: "media", segments, durationSec: Math.round(w.duration ?? 0), language: w.language, method: "whisper" };
+  return { kind: "media", segments, durationSec: Math.round(w.durationSec), language: w.language, method: "whisper" };
 }

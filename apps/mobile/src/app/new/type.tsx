@@ -12,15 +12,15 @@ export default function PickType() {
   const params = useLocalSearchParams<{ source?: string; label?: string }>();
   const source = params.source ?? "";
   const label = params.label ?? "New item";
-  const { prefs } = usePreferences();
+  const { settings } = usePreferences();
   const cardW = (Math.min(width, 520) - 20 * 2 - 10) / 2;
   const options: (NoteType | "auto")[] = ["auto", ...NOTE_TYPES];
 
+  // Auto-detect has no outputs to pick yet (the API reads the source, picks the type and makes its
+  // defaults), but the next screen still asks for the language and any instructions.
   const pick = (t: NoteType | "auto") => {
     router.back();
-    // Auto-detect has no outputs to choose yet: the API reads the source, picks the type and makes its defaults.
-    if (t === "auto") router.push({ pathname: "/new/progress", params: { source, label, type: "auto" } });
-    else router.push({ pathname: "/new/outputs", params: { source, label, type: t.key } });
+    router.push({ pathname: "/new/outputs", params: { source, label, type: t === "auto" ? "auto" : t.key } });
   };
 
   return (
@@ -39,7 +39,7 @@ export default function PickType() {
             <NoteTypeCard
               type={t}
               width={cardW}
-              selected={(t === "auto" && prefs.defaultNoteType === "auto") || (t !== "auto" && prefs.defaultNoteType === t.key)}
+              selected={(t === "auto" && settings.defaultNoteType === "auto") || (t !== "auto" && settings.defaultNoteType === t.key)}
               onPress={() => pick(t)}
             />
           </Rise>

@@ -2,9 +2,9 @@ import { and, asc, eq, lte } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { OUTPUT_KEYS, type Anchor, type NoteTypeKey, type OutputData, type OutputKey, type ReviewCard, type TrackedTask } from "@a2n/shared";
-import { cardReviews, flashcards, generations, quizAttempts, reviewLog, sources, tasks, userSources } from "../db/schema";
+import { cardReviews, flashcards, quizAttempts, reviewLog, sources, tasks, userSources } from "../db/schema";
 import { DAY, db, fail, newId, type AppEnv } from "../lib/http";
-import { parseJson } from "./serialize";
+import { effectiveGenerations, parseJson } from "./serialize";
 
 export const study = new Hono<AppEnv>();
 
@@ -36,11 +36,30 @@ study.get("/tasks", async (c) => {
   return c.json({ tasks: list });
 });
 
+/** Tick, rename, re-type or re-date one of the user's tasks (any subset). The item's tasks output reads the same rows. */
 study.patch("/tasks/:id", async (c) => {
-  const { done } = z.object({ done: z.boolean() }).parse(await c.req.json());
+  const body = z
+    .object({
+      done: z.boolean().optional(),
+      task: z.string().trim().min(1, "A task can't be empty.").max(500).optional(),
+      kind: z.enum(["homework", "reading", "exam", "project"]).optional(),
+      due: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "Use a yyyy-mm-dd date, or null for none.")
+        .refine((d) => !Number.isNaN(Date.parse(`${d}T00:00:00Z`)), "That isn't a real date.")
+        .nullable()
+        .optional(),
+    })
+    .parse(await c.req.json());
   const [row] = await db
     .update(tasks)
-    .set({ status: done ? "done" : "open", updatedAt: Date.now() })
+    .set({
+      ...(body.done !== undefined && { status: body.done ? "done" : "open" }),
+      ...(body.task !== undefined && { task: body.task }),
+      ...(body.kind !== undefined && { kind: body.kind }),
+      ...(body.due !== undefined && { dueDate: body.due }),
+      updatedAt: Date.now(),
+    })
     .where(and(eq(tasks.id, c.req.param("id")), eq(tasks.userId, c.get("user").id)))
     .returning({ id: tasks.id });
   if (!row) throw fail(404, "NOT_FOUND", "Task not found.");
@@ -110,15 +129,13 @@ study.post("/quiz-attempts", async (c) => {
   const body = z
     .object({ itemId: z.string(), output: z.enum(OUTPUT_KEYS as [OutputKey, ...OutputKey[]]), answers: z.array(z.number().int()) })
     .parse(await c.req.json());
-  const [row] = await db
-    .select({ gen: generations })
-    .from(generations)
-    .innerJoin(userSources, and(eq(userSources.sourceId, generations.sourceId), eq(userSources.userId, user.id)))
-    .where(and(eq(generations.sourceId, body.itemId), eq(generations.outputType, body.output)));
-  const data = parseJson<OutputData>(row?.gen.contentJson);
-  if (!row || data?.type !== "quiz") throw fail(404, "NOT_FOUND", "Quiz not found.");
+  const [us] = await db.select().from(userSources).where(and(eq(userSources.userId, user.id), eq(userSources.sourceId, body.itemId)));
+  // Scored against the quiz this user sees (their own copy if they edited or regenerated it).
+  const gen = us ? (await effectiveGenerations(us, [body.output])).get(body.output) : undefined;
+  const data = parseJson<OutputData>(gen?.contentJson);
+  if (!gen || data?.type !== "quiz") throw fail(404, "NOT_FOUND", "Quiz not found.");
   const total = data.questions.length;
   const score = data.questions.filter((q, i) => body.answers[i] === q.correct).length;
-  await db.insert(quizAttempts).values({ id: newId(), userId: user.id, generationId: row.gen.id, answersJson: JSON.stringify(body.answers), score, total, createdAt: Date.now() });
+  await db.insert(quizAttempts).values({ id: newId(), userId: user.id, generationId: gen.id, answersJson: JSON.stringify(body.answers), score, total, createdAt: Date.now() });
   return c.json({ score, total });
 });

@@ -59,6 +59,10 @@ const ICONS = {
   star: ["star.fill", "star"],
   apple: ["apple.logo", "phone_iphone"],
   google: ["g.circle", "language"],
+  folder: ["folder", "folder"],
+  edit: ["pencil", "edit"],
+  share: ["square.and.arrow.up", "share"],
+  copy: ["doc.on.doc", "content_copy"],
 } as const satisfies Record<string, readonly [SFName, MaterialName]>;
 
 export type IconName = keyof typeof ICONS;

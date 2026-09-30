@@ -6,8 +6,9 @@ import type { Anchor, ItemDetail } from "@a2n/shared";
 import { AnchorChip, Body, Chip, Eyebrow, Icon, PressableScale, Small } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
 import { haptic } from "@/lib/haptics";
-import { useSendChat } from "@/lib/queries";
+import { useStreamChat } from "@/lib/queries";
 import { fontFamily, gradients, palette } from "@/theme";
+import { Markdown } from "./Structured";
 
 /** Starter questions for an empty chat; each is sent as-is to the item's chat. */
 const STARTERS = ["Summarise this in five bullets", "What would be on an exam about this?", "Explain the hardest part simply"];
@@ -24,11 +25,13 @@ function usable(content: ItemDetail["content"], cites: Anchor[]): Anchor[] {
   });
 }
 
-/** Ask the item: answers come from its own content and cite where they came from. */
+/** Ask the item: answers come from its own content, stream in as they're written, and cite where they came from. */
 export function Chat({ detail }: { detail: ItemDetail }) {
-  const send = useSendChat(detail.item.id);
+  const send = useStreamChat(detail.item.id);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState<string | null>(null);
+  // The answer so far, while it streams; the saved reply replaces it.
+  const [streamed, setStreamed] = useState("");
   const [error, setError] = useState<string | null>(null);
   const scroll = useRef<ScrollView>(null);
   // Chat reads the extracted content, so it opens once the source has been read.
@@ -41,8 +44,13 @@ export function Chat({ detail }: { detail: ItemDetail }) {
     setInput("");
     setError(null);
     setPending(text);
-    send.mutate(text, {
-      onSettled: () => setPending(null),
+    setStreamed("");
+    const onDelta = (t: string) => setStreamed((s) => s + t);
+    send.mutate({ message: text, onDelta }, {
+      onSettled: () => {
+        setPending(null);
+        setStreamed("");
+      },
       onError: (e) => {
         setError(errorMessage(e));
         setInput(text);
@@ -83,9 +91,7 @@ export function Chat({ detail }: { detail: ItemDetail }) {
                 <Icon name="sparkles" size={13} color={palette.cream} />
               </View>
               <View style={styles.ai}>
-                <Body selectable style={{ fontSize: 15, lineHeight: 22, color: palette.ink }}>
-                  {m.content}
-                </Body>
+                <Markdown text={m.content} />
                 {usable(detail.content, m.citations).length ? (
                   <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 10 }}>
                     <Eyebrow>Source</Eyebrow>
@@ -105,10 +111,16 @@ export function Chat({ detail }: { detail: ItemDetail }) {
               <View style={styles.avatar}>
                 <Icon name="sparkles" size={13} color={palette.cream} />
               </View>
-              <View style={[styles.ai, { flexDirection: "row", alignItems: "center", gap: 10 }]}>
-                <ActivityIndicator size="small" color={palette.red500} />
-                <Small>Reading the source…</Small>
-              </View>
+              {streamed ? (
+                <View style={styles.ai}>
+                  <Markdown text={streamed} />
+                </View>
+              ) : (
+                <View style={[styles.ai, { flexDirection: "row", alignItems: "center", gap: 10 }]}>
+                  <ActivityIndicator size="small" color={palette.red500} />
+                  <Small>Reading the source…</Small>
+                </View>
+              )}
             </Animated.View>
           </>
         ) : null}

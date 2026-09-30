@@ -1,30 +1,47 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as SecureStore from "expo-secure-store";
+import type { UserSettings } from "@a2n/shared";
+import { authClient } from "./auth-client";
 import type { NoteTypeKey } from "./note-types";
+import { useSettings, useUpdateSettings } from "./queries";
 
 /**
- * Device-side app state: whether onboarding was seen, and the note defaults used when adding
- * something (both persisted in SecureStore). Who is signed in comes from Better Auth; the plan
- * and usage come from `GET /api/me`.
+ * App preferences. Whether onboarding was seen is per device (SecureStore). Everything else is
+ * the account's `UserSettings` from `GET /api/settings`, synced across devices (and cached offline
+ * with the rest of the query cache). Who is signed in comes from Better Auth; the plan and usage
+ * from `GET /api/me`.
  */
 export type AutoType = NoteTypeKey | "auto";
 
-type Prefs = {
-  defaultNoteType: AutoType;
-  /** A language name ("English") or "Same as source", sent as `language` when creating items. */
-  outputLanguage: string;
+/** What the API answers for someone who never changed a setting; shown until the real ones load. */
+export const DEFAULT_SETTINGS: UserSettings = {
+  defaultNoteType: "auto",
+  language: "auto",
+  deleteOriginals: false,
+  emailNotesReady: true,
+  emailReminders: true,
 };
+
+/** Output languages in the pickers. The API takes any language name; "auto" = same as the source. */
+export const LANGUAGES = ["auto", "English", "Hindi", "Spanish", "French", "German", "Japanese"] as const;
+export const languageLabel = (language: string) => (language === "auto" ? "Same as source" : language);
+/** The pickers' options, keeping a language set elsewhere (e.g. on the web) that isn't in the list. */
+export const languageOptions = (current: string) =>
+  [...LANGUAGES, ...((LANGUAGES as readonly string[]).includes(current) ? [] : [current])].map((l) => ({ value: l, label: languageLabel(l) }));
 
 type Preferences = {
   onboarded: boolean;
-  prefs: Prefs;
   finishOnboarding: () => void;
-  setPref: <K extends keyof Prefs>(key: K, value: Prefs[K]) => void;
+  settings: UserSettings;
+  /** The settings came from the API (or its cached copy) rather than the defaults */
+  settingsLoaded: boolean;
+  /** Saves a change for every device; rejects with a user-facing message if the API refuses. */
+  updateSettings: (patch: Partial<UserSettings>) => Promise<void>;
 };
 
 const ONBOARDED_KEY = "anything2note_onboarded";
-const PREFS_KEY = "anything2note_prefs";
-const DEFAULTS: Prefs = { defaultNoteType: "auto", outputLanguage: "English" };
+/** Before settings synced, the note defaults lived only on the device, under this key. */
+const LEGACY_PREFS_KEY = "anything2note_prefs";
 
 // SecureStore has no web implementation; there these simply reset per load.
 function read(key: string): string | null {
@@ -41,39 +58,58 @@ function write(key: string, value: string) {
   } catch {}
 }
 
-function readPrefs(): Prefs {
+function legacyPatch(settings: UserSettings): Partial<UserSettings> | null {
+  const raw = read(LEGACY_PREFS_KEY);
+  if (!raw) return null;
   try {
-    return { ...DEFAULTS, ...(JSON.parse(read(PREFS_KEY) ?? "{}") as Partial<Prefs>) };
+    const old = JSON.parse(raw) as { defaultNoteType?: AutoType; outputLanguage?: string };
+    const patch: Partial<UserSettings> = {};
+    if (old.defaultNoteType && old.defaultNoteType !== settings.defaultNoteType) patch.defaultNoteType = old.defaultNoteType;
+    const language = old.outputLanguage === "Same as source" ? "auto" : old.outputLanguage;
+    if (language && language !== settings.language) patch.language = language;
+    return patch;
   } catch {
-    return DEFAULTS;
+    return {};
   }
 }
-
-/** The API's `language` field: "auto" means the source's own language. */
-export const apiLanguage = (outputLanguage: string) => (outputLanguage === "Same as source" ? "auto" : outputLanguage);
 
 const PreferencesContext = createContext<Preferences | null>(null);
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [onboarded, setOnboarded] = useState(() => read(ONBOARDED_KEY) === "1");
-  const [prefs, setPrefs] = useState<Prefs>(readPrefs);
+  const { data: session } = authClient.useSession();
+  const signedIn = !!session;
+  const query = useSettings(signedIn);
+  const { mutate, mutateAsync } = useUpdateSettings();
+  const migrated = useRef(false);
+
+  // One-time move of the old device-only defaults into the account (only values changed here).
+  // Tried once per launch against freshly fetched settings; on failure the next launch tries again.
+  const fresh = query.isFetchedAfterMount && query.isSuccess;
+  useEffect(() => {
+    if (!signedIn || !fresh || !query.data || migrated.current) return;
+    const patch = legacyPatch(query.data);
+    if (!patch) return;
+    migrated.current = true;
+    const forget = () => void SecureStore.deleteItemAsync(LEGACY_PREFS_KEY).catch(() => {});
+    if (Object.keys(patch).length === 0) forget();
+    else mutate(patch, { onSuccess: forget });
+  }, [signedIn, fresh, query.data, mutate]);
 
   const value = useMemo<Preferences>(
     () => ({
       onboarded,
-      prefs,
       finishOnboarding: () => {
         write(ONBOARDED_KEY, "1");
         setOnboarded(true);
       },
-      setPref: (key, v) =>
-        setPrefs((p) => {
-          const next = { ...p, [key]: v };
-          write(PREFS_KEY, JSON.stringify(next));
-          return next;
-        }),
+      settings: query.data ?? DEFAULT_SETTINGS,
+      settingsLoaded: !!query.data,
+      updateSettings: async (patch) => {
+        await mutateAsync(patch);
+      },
     }),
-    [onboarded, prefs],
+    [onboarded, query.data, mutateAsync],
   );
 
   return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;

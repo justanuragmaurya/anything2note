@@ -3,16 +3,16 @@ import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeIn, FadeInDown, ZoomIn } from "react-native-reanimated";
-import type { ItemDetail, OutputKey, SourceKind } from "@a2n/shared";
+import { Image } from "expo-image";
+import { youtubeIdOf, youtubeThumbnailUrl, type ItemDetail, type OutputKey, type SourceKind } from "@a2n/shared";
 import { OutputView } from "@/components/item/OutputView";
 import { SOURCE_ICON } from "@/components/library/ItemCard";
 import { TopBar } from "@/components/navigation/TopBar";
 import { Body, Button, Display, Eyebrow, Icon, Label, ProgressBar, Rise, Screen, SerifAccent, Skeleton, Small } from "@/components/ui";
 import { errorMessage } from "@/lib/api";
-import { draftKind, getDraft, submitDraft } from "@/lib/draft";
+import { draftKind, getDraft, getPending, submitDraft } from "@/lib/draft";
 import { haptic } from "@/lib/haptics";
 import { OUTPUT_LABELS, noteType, type NoteTypeKey } from "@/lib/note-types";
-import { apiLanguage, usePreferences } from "@/lib/preferences";
 import { keys, queryClient, useItem, useRetryItem } from "@/lib/queries";
 import { palette } from "@/theme";
 
@@ -39,14 +39,16 @@ function stepStates(detail: ItemDetail | undefined, phase: "upload" | "create" |
 export default function Progress() {
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ source?: string; label?: string; type?: string; outputs?: string }>();
-  const { prefs } = usePreferences();
-  const draft = getDraft();
+  // Read once: the draft is cleared as soon as the item exists, but this screen still shows it.
+  const [draft] = useState(getDraft);
+  const [options] = useState(() => getPending()?.options);
   const kind: SourceKind = draft ? draftKind(draft) : ((params.source as SourceKind) ?? "text");
-  const auto = params.type === "auto";
-  const chosen = (params.outputs ?? "").split(",").filter(Boolean) as OutputKey[];
+  const auto = (options?.noteType ?? params.type) === "auto";
+  const chosen = options?.outputs ?? ((params.outputs ?? "").split(",").filter(Boolean) as OutputKey[]);
 
   const [itemId, setItemId] = useState<string | null>(null);
-  const [phase, setPhase] = useState<"upload" | "create" | "track">(draft?.type === "upload" ? "upload" : "create");
+  const needsUpload = () => getDraft()?.type === "upload" && !getPending()?.upload?.done;
+  const [phase, setPhase] = useState<"upload" | "create" | "track">(needsUpload() ? "upload" : "create");
   const [uploaded, setUploaded] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(draft ? null : "There's nothing to add. Go back and pick a source again.");
   const started = useRef(false);
@@ -55,17 +57,13 @@ export default function Progress() {
     const d = getDraft();
     if (!d) return;
     setSubmitError(null);
-    setPhase(d.type === "upload" ? "upload" : "create");
+    setPhase(needsUpload() ? "upload" : "create");
     setUploaded(0);
     try {
-      const item = await submitDraft(
-        d,
-        { noteType: auto ? "auto" : ((params.type as NoteTypeKey) ?? "auto"), outputs: auto ? undefined : chosen, language: apiLanguage(prefs.outputLanguage) },
-        (f) => {
-          setUploaded(f);
-          if (f >= 1) setPhase("create");
-        },
-      );
+      const item = await submitDraft((f) => {
+        setUploaded(f);
+        if (f >= 1) setPhase("create");
+      });
       setItemId(item.id);
       setPhase("track");
       void queryClient.invalidateQueries({ queryKey: keys.library });
@@ -102,13 +100,16 @@ export default function Progress() {
   const primary = detail && typeKnown ? ([nt.primary, ...outputs].find((k) => detail.outputs[k]?.status === "ready") ?? null) : null;
 
   const media = MEDIA.includes(kind);
+  const videoId = detail?.item.youtubeId ?? (draft?.type === "url" ? youtubeIdOf(draft.url) : null);
   const steps: { key: StepKey; label: string; hint: string }[] = [
     ...(draft?.type === "upload" || kind === "recording" ? [{ key: "upload" as const, label: "Uploading", hint: "Sending the file to anything2note" }] : []),
     media
       ? { key: "read", label: "Transcribing", hint: "Speech to text with timestamps" }
-      : kind === "web"
-        ? { key: "read", label: "Reading the page", hint: "Fetching the article and pulling out its text" }
-        : { key: "read", label: "Reading", hint: kind === "text" ? "Taking in your text" : "Pulling out the text, page by page" },
+      : kind === "youtube"
+        ? { key: "read", label: "Reading the video", hint: "Its captions, or speech to text when it has none" }
+        : kind === "web"
+          ? { key: "read", label: "Reading the page", hint: "Fetching the article and pulling out its text" }
+          : { key: "read", label: "Reading", hint: kind === "text" ? "Taking in your text" : "Pulling out the text, page by page" },
     { key: "generate", label: "Writing notes", hint: auto && !typeKnown ? "Picking the type, then writing its notes" : `Shaped for a ${nt.label.toLowerCase()}` },
   ];
   const states = stepStates(detail, phase, failed);
@@ -170,9 +171,13 @@ export default function Progress() {
         <Rise delay={80}>
           <View style={styles.frame}>
             <View style={styles.sourceRow}>
-              <View style={[styles.sourceIcon, { backgroundColor: typeKnown || !auto ? nt.color : palette.panel }]}>
-                <Icon name={SOURCE_ICON[kind]} size={16} color={palette.ink} />
-              </View>
+              {kind === "youtube" && videoId ? (
+                <Image source={{ uri: youtubeThumbnailUrl(videoId) }} style={[styles.thumb, { backgroundColor: palette.panel }]} contentFit="cover" transition={200} />
+              ) : (
+                <View style={[styles.sourceIcon, { backgroundColor: typeKnown || !auto ? nt.color : palette.panel }]}>
+                  <Icon name={SOURCE_ICON[kind]} size={16} color={palette.ink} />
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <Label numberOfLines={1}>{detail?.item.title ?? params.label}</Label>
                 <Small>{typeKnown || !auto ? nt.label : "Type is detected after reading"}</Small>
@@ -231,7 +236,7 @@ export default function Progress() {
         ) : !failed && !ready ? (
           <Body style={{ marginTop: 24, fontSize: 13, color: palette.muted }}>
             {phase === "upload"
-              ? "Keep the app open until the upload finishes."
+              ? "You can switch apps while it uploads. If it gets cut off, it picks up where it left off."
               : "This usually takes a few minutes. You can leave — it keeps going and appears in your library."}
           </Body>
         ) : null}
@@ -293,6 +298,7 @@ const styles = StyleSheet.create({
   frame: { marginTop: 24, padding: 16, borderRadius: 22, borderWidth: 1, borderColor: palette.line, backgroundColor: palette.card },
   sourceRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   sourceIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  thumb: { width: 64, height: 36, borderRadius: 10 },
   stage: { flexDirection: "row", gap: 14, alignItems: "flex-start" },
   stageDot: { width: 26, height: 26, borderRadius: 13, borderWidth: 1, borderColor: palette.lineStrong, alignItems: "center", justifyContent: "center", marginTop: -2 },
   stageActive: { borderColor: palette.red500, backgroundColor: palette.red50 },

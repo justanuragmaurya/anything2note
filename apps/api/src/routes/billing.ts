@@ -1,14 +1,15 @@
 import { env } from "cloudflare:workers";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import DodoPayments from "dodopayments";
-import { PLAN_KEYS, planDef, type BillingResponse, type CheckoutResponse, type PlanKey, type PortalResponse } from "@a2n/shared";
+import { PLAN_KEYS, planDef, type BillingResponse, type CheckoutResponse, type CreditEntry, type CreditHistoryResponse, type PlanKey, type PortalResponse } from "@a2n/shared";
 import { billingFor, currentSubscription } from "../billing/credits";
 import { dodo, productFor } from "../billing/dodo";
 import { applySubscription, syncSubscription } from "../billing/subscriptions";
-import { billingEvents } from "../db/schema";
+import { billingEvents, creditBuckets, creditLedger, sources, userSources } from "../db/schema";
 import { db, fail, type AppEnv } from "../lib/http";
+import { parseJson, type SourceMeta } from "./serialize";
 
 /* Plans, checkout and the customer portal (plan.md §8). Everything goes through Dodo Payments. */
 
@@ -98,6 +99,69 @@ billing.post("/billing/change-plan", async (c) => {
   }
   await call(() => syncSubscription(sub.providerSubId));
   return respond(c);
+});
+
+const PAGE = 50;
+
+/**
+ * GET /billing/credits?before= (CreditHistoryResponse). One charge can take from two buckets (plan
+ * credits, then a top-up), which writes a ledger row each; those show as one entry.
+ */
+billing.get("/billing/credits", async (c) => {
+  const user = c.get("user");
+  const { before } = z.object({ before: z.coerce.number().int().positive().optional() }).parse(c.req.query());
+  const rows = await db
+    .select({
+      l: creditLedger,
+      bucketKind: creditBuckets.kind,
+      title: sources.title,
+      meta: sources.metaJson,
+      override: userSources.titleOverride,
+      inLibrary: userSources.sourceId,
+    })
+    .from(creditLedger)
+    .leftJoin(creditBuckets, eq(creditBuckets.id, creditLedger.bucketId))
+    .leftJoin(sources, eq(sources.id, creditLedger.sourceId))
+    .leftJoin(userSources, and(eq(userSources.sourceId, creditLedger.sourceId), eq(userSources.userId, user.id)))
+    .where(and(eq(creditLedger.userId, user.id), before ? lt(creditLedger.createdAt, before) : undefined))
+    .orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
+    .limit(PAGE * 2 + 1);
+
+  const entries: (CreditEntry & { last: number; sourceId: string | null })[] = [];
+  let used = 0;
+  for (const r of rows) {
+    const prev = entries.at(-1);
+    const sameCharge = prev && r.l.reason !== "grant" && r.l.reason !== "expire" && prev.reason === r.l.reason && prev.sourceId === r.l.sourceId && prev.last - r.l.createdAt < 1000;
+    // Stop at 50 entries, but never between rows with the same timestamp (the next page starts strictly before it).
+    if (!sameCharge && entries.length >= PAGE && r.l.createdAt !== prev?.last) break;
+    used++;
+    if (sameCharge) {
+      prev.delta += r.l.delta;
+      prev.last = r.l.createdAt;
+      continue;
+    }
+    const item = parseJson<{ minutes?: number; pages?: number }>(r.l.metaJson);
+    const reason = r.l.reason === "grant" && r.bucketKind === "topup" ? "topup" : (r.l.reason as CreditEntry["reason"]);
+    entries.push({
+      id: r.l.id,
+      at: r.l.createdAt,
+      last: r.l.createdAt,
+      sourceId: r.l.sourceId,
+      delta: r.l.delta,
+      reason,
+      ...(r.l.sourceId && {
+        itemId: r.inLibrary ? r.l.sourceId : undefined,
+        itemTitle: r.override ?? r.title ?? parseJson<SourceMeta>(r.meta)?.label ?? undefined,
+      }),
+      ...(r.l.reason === "item" && { minutes: item?.minutes || undefined, pages: item?.pages || undefined }),
+    });
+  }
+  const more = used < rows.length || rows.length === PAGE * 2 + 1;
+  const body: CreditHistoryResponse = {
+    entries: entries.map(({ last: _last, sourceId: _sourceId, ...e }) => e),
+    next: more ? entries.at(-1)!.last : null,
+  };
+  return c.json(body);
 });
 
 /** Dodo's customer portal: payment method, invoices and cancellation. */

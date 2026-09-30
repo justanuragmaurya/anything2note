@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
   ArrowLeft,
@@ -13,22 +14,37 @@ import {
   FileDown,
   FileText,
   Folder,
+  Link2,
   Loader2,
   MessageSquare,
   MoreHorizontal,
   Pencil,
   Plus,
+  Printer,
+  RefreshCw,
   RotateCcw,
   ScrollText,
   Sparkles,
   Trash2,
+  Undo2,
 } from "lucide-react";
-import type { Anchor, ItemDetail, OutputData, OutputEntry } from "@a2n/shared";
+import {
+  youtubeWatchUrl,
+  type Anchor,
+  type ExportFormat,
+  type ItemDetail,
+  type LibraryItem,
+  type NoteTypeKey,
+  type OutputData,
+  type OutputEntry,
+  type Share,
+  type Task,
+} from "@a2n/shared";
 import { SlidingTabs } from "@/components/ui/sliding-tabs";
-import { api, ApiError, errorMessage } from "@/lib/api";
+import { api, ApiError, errorMessage, workspaceApi } from "@/lib/api";
 import { download, fileSafe, flashcardsCsv, toMarkdown } from "@/lib/export";
 import { MEDIA_KINDS, relativeDate } from "@/lib/format";
-import { noteType, OUTPUT_LABELS, type OutputKey } from "@/lib/note-types";
+import { NOTE_TYPES, noteType, OUTPUT_LABELS, type OutputKey } from "@/lib/note-types";
 import { isWorking, keys, useInvalidate, useItem, useLibrary } from "@/lib/queries";
 import { ProcessingBar, itemSize } from "../library/item-card";
 import { Menu, MenuItem, MenuLabel } from "../menu";
@@ -36,15 +52,23 @@ import { NotFoundView } from "../not-found-view";
 import { SourceIcon, inputCls } from "../ui";
 import { ChatView } from "./chat";
 import { WorkspaceNavContext, type WorkspaceNav } from "./context";
-import type { SharedState } from "./renderers/shared";
-import { StudyRenderer } from "./renderers/study";
-import { TasksRenderer } from "./renderers/tasks";
-import { TextRenderer } from "./renderers/text";
+import { ExportDialog, NoteTypeDialog, RegenerateDialog, ShareDialog } from "./dialogs";
+import { OutputEditor } from "./output-editor";
+import { PdfViewer } from "./pdf-viewer";
+import type { SharedState, TaskPatch } from "./renderers/shared";
+import { Renderer } from "./renderers/renderer";
 import { WorkspaceSkeleton } from "./skeleton";
-import { chaptersFrom, ImageViewer, MediaPlayer, PageTextViewer, PdfViewer, SourceText, ViewerPlaceholder, type MediaState } from "./source-viewer";
+import { chaptersFrom, ImageViewer, MediaPlayer, PageTextViewer, SourceText, ViewerPlaceholder, YoutubePlayer, type MediaState, type YoutubeHandle } from "./source-viewer";
 import { TranscriptView } from "./transcript";
 
 type TabKey = OutputKey | "transcript" | "chat";
+
+type DialogState =
+  | { kind: "share" }
+  | { kind: "export"; format: ExportFormat; outputs?: OutputKey[] }
+  | { kind: "regenerate"; output: OutputKey }
+  | { kind: "noteType"; to: NoteTypeKey }
+  | null;
 
 const SHORT: Partial<Record<OutputKey, string>> = {
   summary: "Summary",
@@ -86,18 +110,6 @@ export function WorkspaceLoader({ id, initial }: { id: string; initial?: Anchor 
 }
 
 /* ─────────────────────────── Pieces ─────────────────────────── */
-
-function Renderer({ data, state }: { data: OutputData; state: SharedState }) {
-  switch (data.type) {
-    case "tasks":
-      return <TasksRenderer data={data} state={state} />;
-    case "flashcards":
-    case "quiz":
-      return <StudyRenderer data={data} state={state} />;
-    default:
-      return <TextRenderer data={data} state={state} />;
-  }
-}
 
 function OutputSkeleton({ label, queued }: { label: string; queued: boolean }) {
   return (
@@ -199,6 +211,7 @@ const iconBtn =
 
 function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; initial?: Anchor; freshMediaUrl: () => Promise<string | null> }) {
   const router = useRouter();
+  const qc = useQueryClient();
   const invalidate = useInvalidate();
   const { data: library } = useLibrary();
   const { item, content } = detail;
@@ -216,6 +229,7 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
   // The signed URL changes on every fetch; keep the first one so polling doesn't reload the player.
   const [mediaUrl, setMediaUrl] = useState(detail.mediaUrl);
   const mediaRef = useRef<(HTMLVideoElement & HTMLAudioElement) | null>(null);
+  const youtubeRef = useRef<YoutubeHandle | null>(null);
   const [media, setMedia] = useState<MediaState>({ time: initial?.kind === "time" ? initial.at : 0, duration: item.durationSec ?? 0, playing: false, speed: 1, error: false });
   const [page, setPage] = useState(initial?.kind === "page" ? initial.page : 1);
   const [flash, setFlash] = useState(0);
@@ -245,6 +259,7 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
         el.currentTime = a.at;
         void el.play().catch(() => {});
       }
+      youtubeRef.current?.seek(a.at);
       setMedia((m) => ({ ...m, time: a.at }));
     } else {
       setPage(a.page);
@@ -275,8 +290,35 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
   const [toast, setToast] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [tasksDone, setTasksDone] = useState<Record<string, boolean>>({});
+  const [taskEdits, setTaskEdits] = useState<Record<string, Partial<Task>>>({});
+  const [editing, setEditing] = useState<OutputKey | null>(null);
+  const [dialog, setDialog] = useState<DialogState>(null);
+  // Chat stays mounted once opened, so an answer keeps streaming while you read other tabs.
+  const [chatMounted, setChatMounted] = useState(false);
+  const dirty = useRef(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const notify = setToast;
+  const onDirty = useCallback((d: boolean) => {
+    dirty.current = d;
+  }, []);
+
+  const confirmDiscard = () => !editing || !dirty.current || window.confirm("Discard your unsaved changes?");
+  const pickTab = (k: TabKey) => {
+    if (k === tab || !confirmDiscard()) return;
+    setEditing(null);
+    dirty.current = false;
+    if (k === "chat" || tab === "chat") setChatMounted(true);
+    setPicked(k);
+  };
+
+  useEffect(() => {
+    if (!editing) return;
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (dirty.current) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [editing]);
 
   useEffect(() => {
     if (!toast) return;
@@ -295,7 +337,7 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
     if (k === "chat") return <MessageSquare className="size-3.5" />;
     if (k === "transcript") return <ScrollText className="size-3.5" />;
     const s = detail.outputs[k]?.status;
-    if (s === "running" || ((!s || s === "queued") && working)) return <Loader2 className="spin size-3.5" aria-label="In progress" />;
+    if (s === "running" || s === "queued" || (!s && working)) return <Loader2 className="spin size-3.5" aria-label="In progress" />;
     if (s === "failed") return <AlertCircle className="size-3.5 text-red-500" aria-label="Failed" />;
     return undefined;
   };
@@ -303,6 +345,97 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
   const retry = async () => {
     await api.retrySource(item.id);
     await invalidate(keys.item(item.id), keys.library);
+  };
+
+  /* ── output actions: each answers { item } and generation resumes, so mark what's coming as queued and poll ── */
+  const applyItem = async (next: LibraryItem, queued: OutputKey[] = []) => {
+    qc.setQueryData<ItemDetail>(keys.item(item.id), (d) => {
+      if (!d) return d;
+      const outputs = { ...d.outputs };
+      for (const k of queued) outputs[k] = { ...outputs[k], key: k, status: "queued", error: undefined };
+      return { ...d, item: next, outputs };
+    });
+    await invalidate(keys.item(item.id), keys.library);
+  };
+
+  const regenerate = async (k: OutputKey, instructions?: string) => {
+    const r = await workspaceApi.regenerateOutput(item.id, k, instructions);
+    setEditing(null);
+    await applyItem(r.item, [k]);
+    notify(`Rewriting ${OUTPUT_LABELS[k].toLowerCase()}`);
+  };
+
+  const addOutput = async (k: OutputKey) => {
+    try {
+      const r = await workspaceApi.addOutputs(item.id, [k]);
+      await applyItem(r.item, [k]);
+      setEditing(null);
+      setPicked(k);
+      notify(`Adding ${OUTPUT_LABELS[k].toLowerCase()}`);
+    } catch (e) {
+      notify(errorMessage(e));
+    }
+  };
+
+  const resetOutput = async (k: OutputKey) => {
+    if (!window.confirm(`Go back to the shared ${OUTPUT_LABELS[k].toLowerCase()}? Your edits and regenerated version are dropped.`)) return;
+    try {
+      const r = await workspaceApi.resetOutput(item.id, k);
+      await applyItem(r.item);
+      if (k === "tasks") void invalidate(keys.tasks);
+      if (k === "flashcards") void invalidate(keys.due);
+      notify("Back to the shared version");
+    } catch (e) {
+      notify(errorMessage(e));
+    }
+  };
+
+  const saveEdit = async (k: OutputKey, data: OutputData) => {
+    const { output } = await workspaceApi.editOutput(item.id, k, data);
+    qc.setQueryData<ItemDetail>(keys.item(item.id), (d) => (d ? { ...d, outputs: { ...d.outputs, [k]: output } } : d));
+    if (data.type === "tasks") {
+      setTasksDone({});
+      setTaskEdits({});
+    }
+    dirty.current = false;
+    setEditing(null);
+    notify("Saved as your version");
+    void invalidate(keys.item(item.id), ...(data.type === "tasks" ? [keys.tasks] : []), ...(data.type === "flashcards" ? [keys.due, keys.library] : []));
+  };
+
+  const changeNoteType = async (to: NoteTypeKey) => {
+    const r = await api.updateSource(item.id, { noteType: to });
+    setEditing(null);
+    setPicked(null);
+    await applyItem(
+      r.item,
+      r.item.outputs.filter((k) => detail.outputs[k]?.status !== "ready"),
+    );
+    void invalidate(keys.tasks, keys.due);
+    notify(`Now a ${noteType(to).label.toLowerCase()} note`);
+  };
+
+  const setShare = async (share: Share | null) => {
+    qc.setQueryData<ItemDetail>(keys.item(item.id), (d) => (d ? { ...d, share } : d));
+    if (!share) notify("Sharing stopped. The link no longer works");
+    await invalidate(keys.item(item.id));
+  };
+
+  const editTask = (id: string, patch: TaskPatch) => {
+    const prev = taskEdits[id];
+    setTaskEdits((e) => ({ ...e, [id]: { ...e[id], ...patch } }));
+    workspaceApi
+      .editTask(id, patch)
+      .then(() => invalidate(keys.tasks, keys.item(item.id)))
+      .catch((e: unknown) => {
+        setTaskEdits((cur) => {
+          const next = { ...cur };
+          if (prev) next[id] = prev;
+          else delete next[id];
+          return next;
+        });
+        notify(errorMessage(e));
+      });
   };
 
   const shared = (outputKey: OutputKey): SharedState => ({
@@ -323,6 +456,8 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
           notify(errorMessage(e));
         });
     },
+    taskEdits,
+    editTask,
   });
 
   const copy = async () => {
@@ -370,6 +505,10 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
   const chapters = chaptersFrom(notes?.type === "notes" ? notes.sections : undefined);
   const folders = library?.folders ?? [];
   const folderName = folders.find((f) => f.id === item.folderId)?.name;
+  const outputKey = tab === "transcript" || tab === "chat" ? null : tab;
+  const ready = item.status.state === "ready";
+  const addable = [...nt.defaults, ...nt.optional].filter((k) => !item.outputs.includes(k));
+  const readyCount = item.outputs.filter((k) => detail.outputs[k]?.status === "ready").length;
 
   let body: ReactNode;
   if (tab === "transcript")
@@ -378,18 +517,47 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
     ) : (
       <p className="text-sm text-muted">{working ? "The source is still being read. Its text shows up here when it’s done." : "No text was extracted from this source."}</p>
     );
-  else if (tab === "chat") body = <ChatView key={item.id} itemId={item.id} itemTitle={item.title} history={detail.chat} contentKind={contentKind} />;
+  else if (tab === "chat") body = null;
   else if (!entry || entry.status === "queued" || entry.status === "running") {
     if (working || entry) body = <OutputSkeleton label={OUTPUT_LABELS[tab]} queued={!entry || entry.status === "queued"} />;
     else if (item.status.state === "failed") body = <p className="text-sm text-muted">{OUTPUT_LABELS[tab]} wasn’t made because processing stopped first.</p>;
     else body = <Failed title={`${OUTPUT_LABELS[tab]} wasn’t generated`} error="Processing finished before this output was made." canRetry onRetry={retry} />;
   } else if (entry.status === "failed")
     body = <Failed title={`${OUTPUT_LABELS[tab]} failed`} error={entry.error ?? "Something went wrong while writing this."} canRetry={!working} onRetry={retry} />;
+  else if (readyData && editing === tab)
+    body = (
+      <OutputEditor
+        key={tab}
+        data={readyData.type === "tasks" ? { ...readyData, items: readyData.items.map((t) => ({ ...t, ...taskEdits[t.id], done: tasksDone[t.id] ?? t.done })) } : readyData}
+        label={OUTPUT_LABELS[tab]}
+        onSave={(d) => saveEdit(tab, d)}
+        onCancel={() => {
+          dirty.current = false;
+          setEditing(null);
+        }}
+        onDirty={onDirty}
+      />
+    );
   else if (readyData) body = <Renderer data={readyData} state={shared(tab)} />;
   else body = <p className="text-sm text-muted">This output came back empty.</p>;
 
   let viewer: ReactNode;
-  if (isMedia)
+  if (item.source === "youtube")
+    viewer = item.youtubeId ? (
+      <YoutubePlayer
+        videoId={item.youtubeId}
+        href={item.sourceUrl ?? youtubeWatchUrl(item.youtubeId)}
+        label={item.sourceLabel}
+        start={initial?.kind === "time" ? initial.at : 0}
+        chapters={chapters}
+        playerRef={youtubeRef}
+        state={media}
+        onState={patchMedia}
+      />
+    ) : (
+      <ViewerPlaceholder item={item} message="The video isn’t available." />
+    );
+  else if (isMedia)
     viewer = mediaUrl ? (
       <MediaPlayer
         src={mediaUrl}
@@ -455,6 +623,10 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
               )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              <button type="button" onClick={() => setDialog({ kind: "share" })} className="btn btn-ghost btn-sm !px-3" aria-label={detail.share ? "Shared. Manage the link" : "Share"}>
+                <Link2 className={`size-4 ${detail.share ? "text-red-500" : ""}`} />
+                <span>{detail.share ? "Shared" : "Share"}</span>
+              </button>
               <Menu
                 label="Note actions"
                 width="w-60"
@@ -475,6 +647,14 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
                       }}
                     >
                       <Pencil className="size-3.5" /> Rename
+                    </MenuItem>
+                    <MenuItem
+                      onSelect={() => {
+                        close();
+                        setDialog({ kind: "export", format: "html" });
+                      }}
+                    >
+                      <Download className="size-3.5" /> Export PDF or Word…
                     </MenuItem>
                     <MenuLabel>Move to folder</MenuLabel>
                     {folders.length === 0 && <p className="px-3 pb-2 text-[12px] text-muted">Create folders from the library.</p>}
@@ -500,6 +680,21 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
                         <Folder className="size-3.5 text-muted" /> Remove from folder
                       </MenuItem>
                     )}
+                    <MenuLabel>Note type</MenuLabel>
+                    {NOTE_TYPES.map((t) => (
+                      <MenuItem
+                        key={t.key}
+                        hint={t.key === item.noteType ? <Check className="size-3.5 text-red-500" /> : undefined}
+                        onSelect={() => {
+                          close();
+                          if (t.key === item.noteType) return;
+                          if (working) return notify("Wait until this note has finished processing");
+                          if (confirmDiscard()) setDialog({ kind: "noteType", to: t.key });
+                        }}
+                      >
+                        <span className="size-2.5 rounded-full ring-1 ring-ink/15" style={{ background: t.color }} aria-hidden /> {t.label}
+                      </MenuItem>
+                    ))}
                     <div className="my-1 h-px bg-line" />
                     <MenuItem
                       onSelect={() => {
@@ -529,27 +724,101 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
           <section className="rise min-w-0 rounded-[28px] border border-line bg-card shadow-[0_30px_60px_-45px_rgba(60,20,10,0.45)]" style={{ animationDelay: "140ms" }} aria-label="Outputs">
             <div className="flex items-center gap-2 border-b border-line p-3 sm:p-4">
               <div className="no-scrollbar min-w-0 flex-1 overflow-x-auto">
-                <SlidingTabs size="sm" value={tab} onChange={setPicked} ariaLabel="Outputs" items={tabs.map((k) => ({ value: k, label: tabLabel(k), icon: tabIcon(k) }))} />
+                <SlidingTabs size="sm" value={tab} onChange={pickTab} ariaLabel="Outputs" items={tabs.map((k) => ({ value: k, label: tabLabel(k), icon: tabIcon(k) }))} />
               </div>
+              {ready && addable.length > 0 && (
+                <Menu
+                  label="Add an output"
+                  width="w-64"
+                  triggerClassName="inline-flex shrink-0 items-center gap-1 rounded-full border border-dashed border-line-strong px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-red-400 hover:text-red-700"
+                  trigger={
+                    <>
+                      <Plus className="size-3.5" /> <span className="hidden sm:inline">Add</span>
+                    </>
+                  }
+                >
+                  {(close) => (
+                    <div className="max-h-[360px] overflow-y-auto">
+                      <MenuLabel>Add to this {nt.label.toLowerCase()} note</MenuLabel>
+                      {addable.map((k) => (
+                        <MenuItem
+                          key={k}
+                          onSelect={() => {
+                            close();
+                            if (confirmDiscard()) void addOutput(k);
+                          }}
+                        >
+                          <Plus className="size-3.5 text-muted" /> {OUTPUT_LABELS[k]}
+                        </MenuItem>
+                      ))}
+                      <p className="px-3 pt-1 pb-2 text-[11px] text-muted">Free: credits are charged per minute or page, not per output.</p>
+                    </div>
+                  )}
+                </Menu>
+              )}
             </div>
 
             {/* Toolbar */}
-            {readyData && (
+            {readyData && outputKey && (
               <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2 sm:px-5">
-                <p className="flex min-w-0 items-center gap-2 truncate font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
-                  <span className="truncate">{OUTPUT_LABELS[tab as OutputKey]}</span>
-                  <span className="hidden sm:inline">· {relativeDate(item.createdAt)}</span>
+                <p className="flex min-w-0 items-center gap-2 font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
+                  <span className="truncate">{OUTPUT_LABELS[outputKey]}</span>
+                  {editing === outputKey ? (
+                    <span className="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-red-700">Editing</span>
+                  ) : entry?.custom ? (
+                    <span className="shrink-0 rounded-full border border-line px-2 py-0.5 text-ink-soft" title="You edited or regenerated this. Others with this source keep the shared version.">
+                      Your version
+                    </span>
+                  ) : (
+                    <span className="hidden truncate sm:inline">· {relativeDate(item.createdAt)}</span>
+                  )}
                 </p>
-                <div className="flex items-center gap-0.5">
+                {editing !== outputKey && (
+                <div className="flex shrink-0 items-center gap-0.5">
                   <button type="button" onClick={copy} className={iconBtn} aria-label={copied ? "Copied" : "Copy"} title="Copy">
                     {copied ? <Check className="tick-pop size-3.5 text-green-700" /> : <Copy className="size-3.5" />}
                   </button>
+                  <button type="button" onClick={() => setEditing(outputKey)} className={iconBtn} aria-label={`Edit ${OUTPUT_LABELS[outputKey]}`} title="Edit">
+                    <Pencil className="size-3.5" />
+                  </button>
+                  <Menu label={`${OUTPUT_LABELS[outputKey]} actions`} width="w-60" triggerClassName={iconBtn} trigger={<MoreHorizontal className="size-4" />}>
+                    {(close) => (
+                      <>
+                        <MenuItem
+                          onSelect={() => {
+                            close();
+                            setDialog({ kind: "regenerate", output: outputKey });
+                          }}
+                        >
+                          <RefreshCw className="size-3.5" /> Regenerate…
+                        </MenuItem>
+                        <MenuItem
+                          onSelect={() => {
+                            close();
+                            setEditing(outputKey);
+                          }}
+                        >
+                          <Pencil className="size-3.5" /> Edit
+                        </MenuItem>
+                        {entry?.custom && (
+                          <MenuItem
+                            onSelect={() => {
+                              close();
+                              void resetOutput(outputKey);
+                            }}
+                          >
+                            <Undo2 className="size-3.5" /> Reset to shared version
+                          </MenuItem>
+                        )}
+                      </>
+                    )}
+                  </Menu>
                   <Menu
                     label="Export"
                     triggerClassName="ml-1 inline-flex items-center gap-1 rounded-full border border-line px-2.5 py-1.5 text-[12px] text-ink-soft transition-colors hover:border-line-strong hover:text-ink"
                     trigger={
                       <>
-                        <Download className="size-3.5" /> Export <ChevronDown className="size-3" />
+                        <Download className="size-3.5" /> <span className="hidden sm:inline">Export</span> <ChevronDown className="size-3" />
                       </>
                     }
                   >
@@ -578,11 +847,31 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
                               <FileDown className="size-3.5" /> Anki deck
                             </MenuItem>
                           )}
+                          <div className="my-1 h-px bg-line" />
+                          <MenuItem
+                            hint=".pdf"
+                            onSelect={() => {
+                              close();
+                              setDialog({ kind: "export", format: "html", outputs: [k] });
+                            }}
+                          >
+                            <Printer className="size-3.5" /> PDF…
+                          </MenuItem>
+                          <MenuItem
+                            hint=".docx"
+                            onSelect={() => {
+                              close();
+                              setDialog({ kind: "export", format: "docx", outputs: [k] });
+                            }}
+                          >
+                            <FileText className="size-3.5" /> Word…
+                          </MenuItem>
                         </>
                       );
                     }}
                   </Menu>
                 </div>
+                )}
               </div>
             )}
 
@@ -598,11 +887,37 @@ function Workspace({ detail, initial, freshMediaUrl }: { detail: ItemDetail; ini
               </div>
             )}
 
-            <div key={tab} ref={bodyRef} className="rise p-4 sm:p-6">
-              {body}
-            </div>
+            {tab !== "chat" && (
+              <div key={tab} ref={bodyRef} className="rise p-4 sm:p-6">
+                {body}
+              </div>
+            )}
+            {(tab === "chat" || chatMounted) && (
+              <div hidden={tab !== "chat"} className="rise p-4 sm:p-6">
+                <ChatView key={item.id} itemId={item.id} itemTitle={item.title} history={detail.chat} contentKind={contentKind} />
+              </div>
+            )}
           </section>
         </div>
+
+        {dialog?.kind === "share" && (
+          <ShareDialog open onClose={() => setDialog(null)} itemId={item.id} share={detail.share} readyCount={readyCount} onChange={setShare} />
+        )}
+        {dialog?.kind === "export" && (
+          <ExportDialog open onClose={() => setDialog(null)} detail={detail} initialFormat={dialog.format} initialOutputs={dialog.outputs} onDone={notify} />
+        )}
+        {dialog?.kind === "regenerate" && (
+          <RegenerateDialog
+            open
+            onClose={() => setDialog(null)}
+            output={dialog.output}
+            custom={!!detail.outputs[dialog.output]?.custom}
+            onSubmit={(instructions) => regenerate(dialog.output, instructions)}
+          />
+        )}
+        {dialog?.kind === "noteType" && (
+          <NoteTypeDialog open onClose={() => setDialog(null)} from={item.noteType} to={dialog.to} onConfirm={() => changeNoteType(dialog.to)} />
+        )}
 
         {toast && (
           <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4 lg:bottom-8 lg:pl-[264px]">

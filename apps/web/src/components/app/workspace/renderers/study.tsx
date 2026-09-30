@@ -8,7 +8,10 @@ import { api, errorMessage } from "@/lib/api";
 import { keys, useInvalidate } from "@/lib/queries";
 import { FlipCard } from "../../flashcard";
 import { AnchorChip, ProgressBar } from "../../ui";
+import { Markdown } from "../markdown";
 import { fits, type SharedState } from "./shared";
+
+const cardText = (t: string) => <Markdown inline text={t} className="[&_strong]:text-inherit [&_code]:text-ink" />;
 
 /** Flip through this item's cards. Spaced-repetition ratings happen in Review. */
 function Flashcards({ cards, state }: { cards: Flashcard[]; state: SharedState }) {
@@ -37,6 +40,7 @@ function Flashcards({ cards, state }: { cards: Flashcard[]; state: SharedState }
         flipped={flipped}
         onFlip={() => setFlipped((f) => !f)}
         color={state.color}
+        renderText={cardText}
         meta={
           <>
             <span>{card.topic}</span>
@@ -45,7 +49,7 @@ function Flashcards({ cards, state }: { cards: Flashcard[]; state: SharedState }
             </span>
           </>
         }
-        backFooter={fits(state, card.anchor) ? <AnchorChip anchor={card.anchor} itemId={state.itemId} /> : undefined}
+        backFooter={fits(state, card.anchor) ? <AnchorChip anchor={card.anchor} itemId={state.readOnly ? undefined : state.itemId} /> : undefined}
       />
       <div className="mt-5 flex w-full max-w-[440px] items-center justify-between gap-2">
         <button type="button" onClick={() => go(i - 1)} className="btn btn-ghost btn-sm" aria-label="Previous card">
@@ -55,6 +59,7 @@ function Flashcards({ cards, state }: { cards: Flashcard[]; state: SharedState }
           Next <ArrowRight className="btn-arrow-right size-3.5" />
         </button>
       </div>
+      {!state.readOnly && (
       <p className="mt-4 flex items-center gap-2 text-center font-mono text-[10px] tracking-[0.1em] text-muted uppercase">
         {state.flashcardsDue > 0 ? (
           <Link href="/app/review" className="inline-flex items-center gap-1.5 text-red-600 hover:text-red-700">
@@ -64,6 +69,7 @@ function Flashcards({ cards, state }: { cards: Flashcard[]; state: SharedState }
           "These cards are in your spaced review deck"
         )}
       </p>
+      )}
     </div>
   );
 }
@@ -79,6 +85,7 @@ function Quiz({ questions, state }: { questions: QuizQuestion[]; state: SharedSt
   if (questions.length === 0) return <p className="text-sm text-muted">No questions were made from this source.</p>;
 
   const submit = async (final: (number | null)[]) => {
+    if (state.readOnly) return;
     setResult({ state: "saving" });
     try {
       const r = await api.quizAttempt({ itemId: state.itemId, output: state.outputKey, answers: final.map((a) => a ?? -1) });
@@ -110,6 +117,8 @@ function Quiz({ questions, state }: { questions: QuizQuestion[]; state: SharedSt
                 Try again
               </button>
             </span>
+          ) : state.readOnly ? (
+            shown.score === shown.total ? "A clean sweep." : "Nothing is saved on a shared page."
           ) : shown.score === shown.total ? (
             <>
               A <span className="serif-accent text-[17px] text-red-500">clean</span> sweep.
@@ -158,7 +167,7 @@ function Quiz({ questions, state }: { questions: QuizQuestion[]; state: SharedSt
         </span>
       </div>
       <p className="eyebrow text-[10px]">{q.topic}</p>
-      <p className="mt-1.5 text-[18px] font-medium tracking-[-0.02em]">{q.q}</p>
+      <Markdown text={q.q} className="mt-1.5 text-[18px] font-medium tracking-[-0.02em]" />
       <div className="mt-4 grid gap-2" role="radiogroup" aria-label="Answers">
         {q.options.map((o, n) => {
           const chosen = answer === n;
@@ -181,9 +190,9 @@ function Quiz({ questions, state }: { questions: QuizQuestion[]; state: SharedSt
                       : "border-line bg-card hover:-translate-y-px hover:border-line-strong"
               }`}
             >
-              <span>
-                <span className="mr-3 font-mono text-xs text-muted">{String.fromCharCode(65 + n)}</span>
-                {o}
+              <span className="flex min-w-0 items-baseline">
+                <span className="mr-3 shrink-0 font-mono text-xs text-muted">{String.fromCharCode(65 + n)}</span>
+                <Markdown inline text={o} />
               </span>
               {reveal && correct && <Check className="size-4 text-green-700" />}
               {reveal && chosen && !correct && <X className="size-4 text-red-600" />}
@@ -194,9 +203,9 @@ function Quiz({ questions, state }: { questions: QuizQuestion[]; state: SharedSt
       {reveal && (
         <div className="rise mt-4 rounded-2xl bg-panel p-4 text-sm">
           <p className={`font-medium ${answer === q.correct ? "text-green-800" : "text-red-700"}`}>{answer === q.correct ? "Correct." : "Not quite."}</p>
-          <p className="mt-1 text-ink-soft">{q.explanation}</p>
+          {q.explanation && <Markdown text={q.explanation} className="mt-1 text-ink-soft" />}
           <div className="mt-3 flex items-center justify-between gap-3">
-            {fits(state, q.anchor) ? <AnchorChip anchor={q.anchor} itemId={state.itemId} /> : <span />}
+            {fits(state, q.anchor) ? <AnchorChip anchor={q.anchor} itemId={state.readOnly ? undefined : state.itemId} /> : <span />}
             <button
               type="button"
               onClick={() => {

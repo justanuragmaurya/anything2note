@@ -6,7 +6,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TopBar } from "@/components/navigation/TopBar";
 import { NightDots } from "@/components/note-type/NoteTypeShape";
 import { PLANS, TRIAL } from "@a2n/shared";
-import { Display, Eyebrow, Icon, Rise, SerifAccent, Small } from "@/components/ui";
+import { Button, Display, Eyebrow, Icon, Rise, SerifAccent, Small } from "@/components/ui";
+import { openWebBilling } from "@/lib/billing";
 import { useMe } from "@/lib/queries";
 import { fontFamily, palette } from "@/theme";
 
@@ -73,11 +74,14 @@ export default function Paywall() {
         })}
 
         {/* Plans are sold on the web for now; no in-app purchase (plan.md §8). */}
-        <Rise delay={260} style={{ marginTop: 18, paddingHorizontal: 4 }}>
+        <Rise delay={260} style={{ marginTop: 20, paddingHorizontal: 4, gap: 12 }}>
+          <Button block size="lg" variant="cream" icon="arrowUpRight" onPress={() => void openWebBilling()}>
+            {current ? "Manage plan on the web" : "Start on the web"}
+          </Button>
           <Small style={{ color: palette.nightMuted, textAlign: "center", fontSize: 13 }}>
             {current
-              ? "To change plans, update your card or cancel, go to Plan & billing on anything2note.com."
-              : "Start your trial or subscribe at anything2note.com, signed in with this account. Your credits show up here straight away."}
+              ? "Change plans, update your card or cancel in Plan & billing, signed in with this account."
+              : "Start your trial or subscribe signed in with this account. Your credits show up here straight away."}
           </Small>
         </Rise>
       </ScrollView>

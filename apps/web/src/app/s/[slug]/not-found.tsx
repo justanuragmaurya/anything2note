@@ -18,8 +18,8 @@ export default function SharedNotFound() {
           What is anything2note?
           <ArrowRight className="size-4" />
         </Link>
-        <Link href="/s/demo" className="btn btn-ghost btn-sm">
-          See a sample note
+        <Link href="/pricing" className="btn btn-ghost btn-sm">
+          See pricing
         </Link>
       </div>
     </div>

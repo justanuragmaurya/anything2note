@@ -1,9 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { AlertCircle, ArrowUpRight, Layers, Loader2, RotateCcw, Trash2 } from "lucide-react";
-import type { ItemStatus, LibraryItem, ProcessingStep } from "@a2n/shared";
+import { youtubeThumbnailUrl, type ItemStatus, type LibraryItem, type ProcessingStep } from "@a2n/shared";
 import { NoteTypeShape } from "@/components/site/note-type-shape";
 import { errorMessage } from "@/lib/api";
 import { fmtDuration, relativeDate, SOURCE_LABELS } from "@/lib/format";
@@ -53,6 +54,15 @@ export function ProcessingBar({ status }: { status: Extract<ItemStatus, { state:
         ))}
       </ol>
     </div>
+  );
+}
+
+/** The video's thumbnail in place of the source icon, for YouTube items. */
+function YoutubeThumb({ id, className, sizes }: { id: string; className: string; sizes: string }) {
+  return (
+    <span className={`relative shrink-0 overflow-hidden border border-line bg-panel ${className}`}>
+      <Image src={youtubeThumbnailUrl(id)} alt="" fill sizes={sizes} className="object-cover" />
+    </span>
   );
 }
 
@@ -164,9 +174,13 @@ export function ItemCard({ item, actions }: { item: LibraryItem; actions: ItemAc
 
       <div className="flex flex-1 flex-col gap-3 p-4">
         <div className="flex items-center gap-2 text-muted">
-          <span className="grid size-6 place-items-center rounded-lg border border-line bg-paper text-ink-soft">
-            <SourceIcon kind={item.source} className="size-3.5" />
-          </span>
+          {item.youtubeId ? (
+            <YoutubeThumb id={item.youtubeId} className="h-6 w-[42px] rounded-md" sizes="42px" />
+          ) : (
+            <span className="grid size-6 place-items-center rounded-lg border border-line bg-paper text-ink-soft">
+              <SourceIcon kind={item.source} className="size-3.5" />
+            </span>
+          )}
           <span className="min-w-0 truncate font-mono text-[10px] tracking-[0.08em] uppercase">{item.sourceLabel}</span>
         </div>
         <h3 className="text-[16px] leading-snug font-medium tracking-[-0.02em] text-ink">
@@ -201,9 +215,13 @@ export function ItemRow({ item, actions }: { item: LibraryItem; actions: ItemAct
     >
       <span aria-hidden className="absolute inset-y-0 left-0 w-1.5 transition-[width] duration-300 group-hover:w-2" style={{ background: nt.color }} />
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-line bg-paper text-ink-soft">
-          <SourceIcon kind={item.source} />
-        </span>
+        {item.youtubeId ? (
+          <YoutubeThumb id={item.youtubeId} className="h-9 w-16 rounded-xl" sizes="64px" />
+        ) : (
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-line bg-paper text-ink-soft">
+            <SourceIcon kind={item.source} />
+          </span>
+        )}
         <div className="min-w-0">
           <p className="truncate text-[15px] font-medium tracking-[-0.015em]">{item.title}</p>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 font-mono text-[10px] tracking-[0.08em] text-muted uppercase">

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import type { Anchor, Task, TaskKind } from "@a2n/shared";
 import { AnchorChip, Icon, PressableScale, Small } from "@/components/ui";
@@ -13,6 +13,8 @@ type Props = {
   showSource?: boolean;
   /** Where the anchor chip goes; inside the item screen the chip uses the screen's own handler. */
   onAnchor?: (a: Anchor) => void;
+  /** Tapping the text (or the pencil) edits the task's text, kind and due date. */
+  onEdit?: () => void;
 };
 
 const KIND: Record<TaskKind, { label: string; tint: string }> = {
@@ -43,7 +45,7 @@ function Due({ value }: { value: string | null }) {
 }
 
 /** Task from class with an animated tick (checkbox scale-in); done tasks fade to muted and strike through. */
-export function TaskRow({ item, onToggle, source, showSource = true, onAnchor }: Props) {
+export function TaskRow({ item, onToggle, source, showSource = true, onAnchor, onEdit }: Props) {
   const v = useSharedValue(item.done ? 1 : 0);
   useEffect(() => {
     v.set(withTiming(item.done ? 1 : 0, { duration: 260 }));
@@ -68,7 +70,9 @@ export function TaskRow({ item, onToggle, source, showSource = true, onAnchor }:
         </Animated.View>
       </PressableScale>
       <View style={{ flex: 1, gap: 8 }}>
-        <Animated.Text style={[styles.task, item.done && styles.taskDone, text]}>{item.task}</Animated.Text>
+        <Pressable onPress={onEdit} disabled={!onEdit} accessibilityRole={onEdit ? "button" : undefined} accessibilityHint={onEdit ? "Edit this task" : undefined}>
+          <Animated.Text style={[styles.task, item.done && styles.taskDone, text]}>{item.task}</Animated.Text>
+        </Pressable>
         <View style={styles.metaRow}>
           <KindChip kind={item.kind} />
           <Due value={item.due} />
@@ -80,6 +84,11 @@ export function TaskRow({ item, onToggle, source, showSource = true, onAnchor }:
           </Small>
         ) : null}
       </View>
+      {onEdit ? (
+        <PressableScale onPress={onEdit} haptics="tap" hitSlop={10} accessibilityLabel="Edit task" style={styles.edit}>
+          <Icon name="edit" size={13} color={palette.muted} />
+        </PressableScale>
+      ) : null}
     </View>
   );
 }
@@ -96,6 +105,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.card,
   },
   box: { width: 22, height: 22, borderRadius: 7, borderWidth: 1.5, alignItems: "center", justifyContent: "center", marginTop: 1 },
+  edit: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: -3, marginRight: -4 },
   task: { fontFamily: fontFamily.sans, fontSize: 15, lineHeight: 21 },
   taskDone: { textDecorationLine: "line-through", textDecorationColor: palette.muted },
   metaRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6 },

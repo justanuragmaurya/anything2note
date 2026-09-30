@@ -5,6 +5,7 @@
     "dev": "wrangler dev --ip 0.0.0.0",
     "deploy": "wrangler deploy --minify",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply a2n-dev --local",
     "db:migrate:remote": "wrangler d1 migrations apply a2n-dev --remote"
@@ -13,9 +14,11 @@
     "@a2n/shared": "workspace:*",
     "@better-auth/drizzle-adapter": "1.7.6",
     "@better-auth/expo": "1.7.6",
+    "@cloudflare/containers": "^0.3.7",
     "@mozilla/readability": "^0.6.0",
     "aws4fetch": "^1.0.20",
     "better-auth": "1.7.6",
+    "docx": "^9.8.0",
     "dodopayments": "^2.52.0",
     "drizzle-orm": "0.45.3",
     "fflate": "^0.8.3",
@@ -25,7 +28,9 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.3.0",
     "drizzle-kit": "0.31.11",
+    "vitest": "^4.1.11",
     "wrangler": "^4.110.0"
   }
 }

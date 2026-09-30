@@ -1,19 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, ArrowUp, Sparkles } from "lucide-react";
+import { AlertCircle, ArrowUp, Sparkles, Square } from "lucide-react";
 import type { ChatMessage } from "@a2n/shared";
-import { api, errorMessage } from "@/lib/api";
+import { ApiError, errorMessage, workspaceApi } from "@/lib/api";
 import { anchorFits } from "@/lib/format";
 import { keys, useInvalidate } from "@/lib/queries";
 import { AnchorChip } from "../ui";
+import { Markdown } from "./markdown";
 
 /** Generic starters; each one is sent as a real question. */
 const STARTERS = ["Summarise this in three bullet points", "What are the key terms?", "What should I remember for a test?"];
 
-type Pending = { text: string; error?: string };
+/** The question in flight: the answer so far (streamed), or why it failed. */
+type Pending = { text: string; answer: string; error?: string };
 
-/** Chat over this item's content (`POST /sources/:id/chat`, answered in one go, with citations). */
+/** Chat over this item's content (`POST /sources/:id/chat`), streamed as it's written, with citations. */
 export function ChatView({
   itemId,
   itemTitle,
@@ -30,27 +32,49 @@ export function ChatView({
   const [pending, setPending] = useState<Pending | null>(null);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const busy = !!pending && !pending.error;
   const ready = contentKind !== null;
 
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    // Follow the stream only while the reader is near the bottom.
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 160) el.scrollTo({ top: el.scrollHeight, behavior: pending?.answer ? "auto" : "smooth" });
   }, [msgs, pending]);
 
   const send = async (text: string) => {
     const q = text.trim();
     if (!q || busy || !ready) return;
     setInput("");
-    setPending({ text: q });
+    setPending({ text: q, answer: "" });
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    const now = Date.now();
+    const userMsg: ChatMessage = { id: `local-${now}`, role: "user", content: q, citations: [], createdAt: now };
+    let streamed = "";
     try {
-      const { message } = await api.chat(itemId, q);
-      const now = Date.now();
-      setMsgs((ms) => [...ms, { id: `local-${now}`, role: "user", content: q, citations: [], createdAt: now }, message]);
+      const message = await workspaceApi.chatStream(itemId, q, {
+        signal: ctrl.signal,
+        onDelta: (t) => {
+          streamed += t;
+          setPending((p) => (p && !p.error ? { ...p, answer: streamed } : p));
+        },
+      });
+      setMsgs((ms) => [...ms, userMsg, message]);
       setPending(null);
       void invalidate(keys.me, keys.item(itemId));
     } catch (e) {
-      setPending({ text: q, error: errorMessage(e) });
+      if (e instanceof ApiError && e.code === "ABORTED") {
+        // Keep what was written before Stop; nothing to retry.
+        if (streamed.trim()) setMsgs((ms) => [...ms, userMsg, { id: `local-${now}-a`, role: "assistant", content: `${streamed.trimEnd()} …`, citations: [], createdAt: Date.now() }]);
+        else setInput(q);
+        setPending(null);
+        void invalidate(keys.me, keys.item(itemId));
+      } else {
+        setPending({ text: q, answer: "", error: errorMessage(e) });
+      }
+    } finally {
+      if (abortRef.current === ctrl) abortRef.current = null;
     }
   };
 
@@ -81,7 +105,7 @@ export function ChatView({
                 <Sparkles className="size-3.5" />
               </span>
               <div className="min-w-0 rounded-2xl rounded-tl-md border border-line bg-paper px-4 py-3 text-sm leading-relaxed">
-                <p className="whitespace-pre-line">{m.content}</p>
+                <Markdown text={m.content} />
                 {m.citations.some((c) => anchorFits(c, contentKind)) && (
                   <div className="rise mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-line pt-2.5">
                     <span className="font-mono text-[9px] tracking-[0.12em] text-muted uppercase">Sources</span>
@@ -116,12 +140,19 @@ export function ChatView({
                 <span className="grid size-7 shrink-0 place-items-center rounded-full bg-red-500 text-cream">
                   <Sparkles className="size-3.5" />
                 </span>
-                <div className="rounded-2xl rounded-tl-md border border-line bg-paper px-4 py-3">
-                  <span className="flex items-center gap-1 py-1" aria-label="Thinking">
-                    {[0, 1, 2].map((d) => (
-                      <span key={d} className="pulse-dot size-1.5 rounded-full bg-muted" style={{ animationDelay: `${d * 160}ms` }} />
-                    ))}
-                  </span>
+                <div className="min-w-0 rounded-2xl rounded-tl-md border border-line bg-paper px-4 py-3 text-sm leading-relaxed">
+                  {pending.answer ? (
+                    <div aria-busy="true">
+                      <Markdown text={pending.answer} />
+                      <span className="caret" aria-hidden />
+                    </div>
+                  ) : (
+                    <span className="flex items-center gap-1 py-1" aria-label="Thinking">
+                      {[0, 1, 2].map((d) => (
+                        <span key={d} className="pulse-dot size-1.5 rounded-full bg-muted" style={{ animationDelay: `${d * 160}ms` }} />
+                      ))}
+                    </span>
+                  )}
                 </div>
               </div>
             )}
@@ -160,14 +191,26 @@ export function ChatView({
             aria-label="Message"
             className="min-w-0 flex-1 bg-transparent text-sm text-ink placeholder:text-muted focus:outline-none disabled:cursor-not-allowed"
           />
-          <button
-            type="submit"
-            aria-label={busy ? "Waiting for the answer" : "Send"}
-            disabled={!input.trim() || busy || !ready}
-            className="grid size-9 place-items-center rounded-full bg-red-500 text-cream transition-all hover:bg-red-600 active:scale-90 disabled:bg-line-strong"
-          >
-            <ArrowUp className="size-4" />
-          </button>
+          {busy ? (
+            <button
+              type="button"
+              onClick={() => abortRef.current?.abort()}
+              aria-label="Stop the answer"
+              title="Stop"
+              className="grid size-9 place-items-center rounded-full bg-ink text-cream transition-all hover:bg-ink-soft active:scale-90"
+            >
+              <Square className="size-3 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              aria-label="Send"
+              disabled={!input.trim() || !ready}
+              className="grid size-9 place-items-center rounded-full bg-red-500 text-cream transition-all hover:bg-red-600 active:scale-90 disabled:bg-line-strong"
+            >
+              <ArrowUp className="size-4" />
+            </button>
+          )}
         </form>
       </div>
     </div>

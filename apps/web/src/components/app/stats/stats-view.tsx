@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { AlertCircle, ArrowUpRight, Flame, Loader2, RotateCcw } from "lucide-react";
-import type { StatsResponse } from "@a2n/shared";
+import type { CreditEntry, StatsResponse } from "@a2n/shared";
 import { CountUp } from "@/components/ui/count-up";
 import { errorMessage } from "@/lib/api";
 import { MONTHS, fmtDayUTC, fmtTsDate, todayIso } from "@/lib/format";
-import { useStats } from "@/lib/queries";
+import { useCreditHistory, useStats } from "@/lib/queries";
+import { boughtLabel, creditReason, fmtDelta } from "../billing/credit-history";
 import { PageHeader, ProgressBar } from "../ui";
 
 const WEEKS = 26;
@@ -274,6 +275,8 @@ function Stats({ stats }: { stats: StatsResponse }) {
         <WeeklyBars weekly={stats.weekly} />
       </div>
 
+      <CreditUsage />
+
       <section className="rise mt-4 rounded-[28px] border border-line bg-card p-5 sm:p-6" style={{ animationDelay: "360ms" }} aria-label="Weak topics">
         <div className="flex items-end justify-between gap-3">
           <div>
@@ -306,5 +309,101 @@ function Stats({ stats }: { stats: StatsResponse }) {
         </ul>
       </section>
     </div>
+  );
+}
+
+/* ─────────────────────────── Credit usage ─────────────────────────── */
+
+const USAGE_DAYS = 30;
+/** Pages of history to pull (50 each) to cover the window. */
+const USAGE_MAX_PAGES = 4;
+
+function sumUsage(entries: CreditEntry[]) {
+  const t = { items: 0, itemCount: 0, minutes: 0, pages: 0, chat: 0, added: 0, refunded: 0, expired: 0 };
+  for (const e of entries) {
+    if (e.reason === "item") {
+      t.items -= e.delta;
+      t.itemCount += 1;
+      t.minutes += e.minutes ?? 0;
+      t.pages += e.pages ?? 0;
+    } else if (e.reason === "item_refund") t.refunded += e.delta;
+    else if (e.reason === "chat") t.chat -= e.delta;
+    else if (e.reason === "grant" || e.reason === "topup") t.added += e.delta;
+    else if (e.reason === "expire") t.expired -= e.delta;
+  }
+  return t;
+}
+
+function UsageFigure({ label, value, foot }: { label: string; value: string; foot: string }) {
+  return (
+    <div className="rounded-2xl border border-line bg-paper/60 p-3.5">
+      <p className="eyebrow text-[9px]">{label}</p>
+      <p className="mt-1.5 text-[24px] leading-none tracking-[-0.03em] tabular-nums">{value}</p>
+      <p className="mt-1.5 truncate text-[12px] text-muted">{foot}</p>
+    </div>
+  );
+}
+
+/** What credits went on over the last 30 days, from the credit history. */
+function CreditUsage() {
+  const q = useCreditHistory();
+  const [since] = useState(() => Date.now() - USAGE_DAYS * DAY);
+  const entries = q.data?.pages.flatMap((p) => p.entries) ?? [];
+  const oldest = entries.at(-1)?.at;
+  const needMore = !!q.hasNextPage && oldest !== undefined && oldest > since && (q.data?.pages.length ?? 0) < USAGE_MAX_PAGES;
+  const { fetchNextPage, isFetchingNextPage } = q;
+  useEffect(() => {
+    if (needMore && !isFetchingNextPage) void fetchNextPage();
+  }, [needMore, isFetchingNextPage, fetchNextPage]);
+
+  if (q.error && !q.data) return null;
+  const recent = entries.filter((e) => e.at >= since);
+  const t = sumUsage(recent);
+  const bought = boughtLabel(t);
+  return (
+    <section className="rise mt-4 rounded-[28px] border border-line bg-card p-5 sm:p-6" style={{ animationDelay: "330ms" }} aria-label="Credit usage">
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <p className="eyebrow text-[10px]">Credit usage · last {USAGE_DAYS} days</p>
+          <p className="mt-1.5 text-[15px] text-ink-soft">What your notes and chat used, and what was added.</p>
+        </div>
+        <Link href="/app/billing#credits" className="link-arrow shrink-0 text-[13px] text-red-600">
+          Full history <ArrowUpRight className="size-3.5" />
+        </Link>
+      </div>
+      {!q.data ? (
+        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4" aria-busy="true">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="skeleton h-[92px] rounded-2xl" />
+          ))}
+        </div>
+      ) : recent.length === 0 ? (
+        <p className="mt-5 text-sm text-muted">No credits used in the last {USAGE_DAYS} days.</p>
+      ) : (
+        <>
+          <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <UsageFigure label="Notes" value={t.items.toLocaleString("en-US")} foot={`${t.itemCount} ${t.itemCount === 1 ? "item" : "items"}${bought ? ` · ${bought}` : ""}`} />
+            <UsageFigure label="Chat" value={t.chat.toLocaleString("en-US")} foot="Past the included messages" />
+            <UsageFigure label="Added" value={fmtDelta(t.added)} foot="Plan and trial credits" />
+            <UsageFigure label="Refunded" value={fmtDelta(t.refunded)} foot={t.expired ? `${t.expired.toLocaleString("en-US")} expired unused` : "From notes that failed"} />
+          </div>
+          <ul className="mt-5 divide-y divide-line">
+            {recent.slice(0, 4).map((e) => {
+              const r = creditReason(e);
+              return (
+                <li key={e.id} className="flex items-center gap-3 py-2.5 text-[13px] first:pt-0 last:pb-0">
+                  <span className="w-[48px] shrink-0 font-mono text-[10px] tracking-[0.06em] text-muted uppercase">{fmtTsDate(e.at)}</span>
+                  <span className="min-w-0 flex-1 truncate text-ink-soft">
+                    {r.title}
+                    {r.detail && <span className="text-muted"> · {r.detail}</span>}
+                  </span>
+                  <span className={`shrink-0 font-mono text-[12px] tabular-nums ${e.delta > 0 ? "text-green-800" : "text-ink"}`}>{fmtDelta(e.delta)}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }
